@@ -424,6 +424,12 @@ def parse_args(args):
         default=None,
         help='Which pre-trained weights to distill from, if any.'
     )
+    parser.add_argument(
+        "--cosinereg",
+        type=float,
+        default=0.0,
+        help="regularization term for cosine regularization with clip loss",
+    )
     args = parser.parse_args(args)
 
     # If some params are not passed, we use the default values based on model name.

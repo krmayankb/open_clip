@@ -13,7 +13,7 @@ from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype
 from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, CosRegLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained, list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform, AugmentationCfg
@@ -261,6 +261,17 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
+    elif args.cosinereg:
+        return CosRegLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+            gamma_reg = args.cosinereg
+        )
+    
     return ClipLoss(
         local_loss=args.local_loss,
         gather_with_grad=args.gather_with_grad,
