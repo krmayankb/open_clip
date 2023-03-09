@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=krishna
-#SBATCH --partition=ckpt
+#SBATCH --partition=gpu-a100
 #SBATCH --job-name=tr0.001
 #SBATCH --error=./jobs/job.err.%j
 #SBATCH --output=./jobs/job.run.%j

@@ -219,7 +219,7 @@ class CosRegLoss(ClipLoss):
                  rank=0, 
                  world_size=1, 
                  use_horovod=False,
-                 cosine_reg = 0.001):
+                 cosinereg = 0.001):
         
         super().__init__(local_loss=local_loss, 
                          gather_with_grad=gather_with_grad, 
@@ -228,7 +228,7 @@ class CosRegLoss(ClipLoss):
                          world_size=world_size, 
                          use_horovod=use_horovod)
         
-        self.cosine_reg = cosine_reg
+        self.cosinereg = cosinereg
     
     def get_modality_cosine_reg(self, features):
         batch_size = features.shape[0]
@@ -240,15 +240,13 @@ class CosRegLoss(ClipLoss):
         dot_products -= torch.diag(torch.diag(dot_products))
         
         loss = torch.sum(dot_products)/(batch_size * (batch_size - 1))
-        return loss.item()
+        return loss
 
 
     def forward(self, image_features, text_features, logit_scale, output_dict=False):
         
         #CLIP Loss 
-        cliploss = super().forward(image_features, text_features, logit_scale, output_dict)
-        if output_dict:
-            cliploss = cliploss["contrastive_loss"]
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False)
 
         #Regularization term on image 
         image_reg_loss = self.get_modality_cosine_reg(image_features)
@@ -256,6 +254,10 @@ class CosRegLoss(ClipLoss):
         #Regularization term on text 
         text_reg_loss = self.get_modality_cosine_reg(text_features)
 
-        total_loss = cliploss + self.cosine_reg * (image_reg_loss + text_reg_loss)
-        return total_loss
+        loss_regularization = self.cosinereg * (image_reg_loss + text_reg_loss)
+        
+        if output_dict:
+            return {"cosine_reg": loss_regularization, "contrastive_loss": cliploss}
+        
+        return cliploss, loss_regularization
     
