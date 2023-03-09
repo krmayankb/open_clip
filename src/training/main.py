@@ -96,6 +96,7 @@ def main(args):
             f"b_{args.batch_size}",
             f"j_{args.workers}",
             f"p_{args.precision}",
+            f"reg_{args.cosinereg}"
         ])
 
     resume_latest = args.resume == 'latest'
