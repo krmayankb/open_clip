@@ -7,7 +7,7 @@ torchrun --nproc_per_node 2 -m training.main \
     --precision amp \
     --gather-with-grad \
     --batch-size 512 \
-    --workers 6 \
-    --cosinereg 0.1 \
-    --report-to 'wandb,tensorboard' 
-    
+    --cosinereg 0.001 \
+    --report-to 'wandb' \
+    --resume /mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/2023_03_08-18_33_53-model_ViT-B-16-lr_0.0005-b_256-j_6-p_amp-reg_0.001/checkpoints/epoch_26.pt
+
