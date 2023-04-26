@@ -219,7 +219,8 @@ class CosRegLoss(ClipLoss):
                  rank=0, 
                  world_size=1, 
                  use_horovod=False,
-                 cosinereg = 0.001):
+                 cosinereg = 0.001, 
+                 reg_threshold = 0.30):
         
         super().__init__(local_loss=local_loss, 
                          gather_with_grad=gather_with_grad, 
@@ -229,6 +230,7 @@ class CosRegLoss(ClipLoss):
                          use_horovod=use_horovod)
         
         self.cosinereg = cosinereg
+        self.reg_threshold = reg_threshold
     
     def get_modality_cosine_reg(self, features):
         batch_size = features.shape[0]
@@ -238,7 +240,7 @@ class CosRegLoss(ClipLoss):
 
         # Exclude the dot products of representation with itself 
         dot_products -= torch.diag(torch.diag(dot_products))
-        
+        dot_products = torch.where(dot_products > self.reg_threshold, torch.zeros_like(dot_products), dot_products)
         loss = torch.sum(dot_products)/(batch_size * (batch_size - 1))
         return loss
 

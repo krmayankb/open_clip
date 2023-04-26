@@ -6,8 +6,16 @@ torchrun --nproc_per_node 2 -m training.main \
     --dataset-type webdataset \
     --precision amp \
     --gather-with-grad \
+    --local-loss \
     --batch-size 512 \
     --cosinereg 0.001 \
+    --seed 0 \
+    --workers 6 \
+    --warmup 500 \
+    --epochs 128 \
+    --zeroshot-frequency 2 \
     --report-to 'wandb' \
-    --resume /mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/2023_03_08-18_33_53-model_ViT-B-16-lr_0.0005-b_256-j_6-p_amp-reg_0.001/checkpoints/epoch_26.pt
-
+    --wandb-project-name "threshold_finetuning" \
+    --resume /mmfs1/gscratch/krishna/mayank/clip_clone/checkpoints/reg0.00/epoch_32.pt \
+    --logs "/mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/threshold_finetuning" \
+    --name ViT-B-16-threshold_finetuning_0_00_32ep_0_001_128ep 

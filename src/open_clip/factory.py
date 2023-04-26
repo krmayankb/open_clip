@@ -269,7 +269,8 @@ def create_loss(args):
             rank=args.rank,
             world_size=args.world_size,
             use_horovod=args.horovod,
-            cosinereg = args.cosinereg
+            cosinereg = args.cosinereg,
+            reg_threshold=args.reg_threshold
         )
     
     return ClipLoss(

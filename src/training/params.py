@@ -430,6 +430,12 @@ def parse_args(args):
         default=0.0,
         help="regularization term for cosine regularization with clip loss",
     )
+    parser.add_argument(
+        "--reg_threshold",
+        type=float,
+        default=0.30,
+        help="threshold for calculating loss in cosine regularization",
+    )
     args = parser.parse_args(args)
 
     # If some params are not passed, we use the default values based on model name.

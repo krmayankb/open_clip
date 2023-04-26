@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --account=krishna
 #SBATCH --partition=gpu-a100
-#SBATCH --job-name=tr_0.001
-#SBATCH --error=./jobs/job.err.%j
-#SBATCH --output=./jobs/job.run.%j
-#SBATCH --time=6-00:00:00
+#SBATCH --job-name=newtrain
+#SBATCH --error=./jobs/greater_threshold/job.err.%j
+#SBATCH --output=./jobs/greater_threshold/job.run.%j
+#SBATCH --time=6-15:00:00
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=2
 #SBATCH --mem-per-gpu=80G
@@ -12,4 +12,4 @@
 #SBATCH --mail-user=krmayank@uw.edu
 #SBATCH --mail-type=ALL
 
-bash resume.sh
+bash train.sh
