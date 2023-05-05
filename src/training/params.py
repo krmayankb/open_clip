@@ -436,6 +436,19 @@ def parse_args(args):
         default=0.30,
         help="threshold for calculating loss in cosine regularization",
     )
+    parser.add_argument(
+        "--freeze_text", 
+        default=False,
+        action="store_true", 
+        help="this will disable gradients in text transformer"
+    )
+
+    parser.add_argument(
+        "--force_byol_clip", 
+        default=False,
+        action="store_true", 
+        help="use byol and clip loss combined for trainining"
+    )
     args = parser.parse_args(args)
 
     # If some params are not passed, we use the default values based on model name.

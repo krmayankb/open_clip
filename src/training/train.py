@@ -90,7 +90,12 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
 
         images, texts = batch
         images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-        texts = texts.to(device=device, non_blocking=True)
+        
+        if args.freeze_text: 
+            with torch.no_grad():
+                texts = texts.to(device=device, non_blocking=True)
+        else: 
+            texts = texts.to(device=device, non_blocking=True)
 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
@@ -108,6 +113,11 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 losses["loss"] = total_loss
 
             backward(total_loss, scaler)
+            if args.force_byol_clip: 
+                try:
+                    model.module.update_target_encoder()
+                except: 
+                    model.update_target_encoder()
         else:
             # First, cache the features without any gradient tracking.
             with torch.no_grad():

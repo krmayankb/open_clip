@@ -10,10 +10,10 @@ from typing import Any, Dict, Optional, Tuple, Union
 import torch
 
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
-from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
+from .model import CLIP, CustomTextCLIP, BYOLCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype
 from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, CosRegLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, CosRegLoss, BYOLCLIPLOSS
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained, list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform, AugmentationCfg
@@ -119,6 +119,7 @@ def create_model(
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
         require_pretrained: bool = False,
+        force_byol_clip: bool = False
 ):
     has_hf_hub_prefix = model_name.startswith(HF_HUB_PREFIX)
     if has_hf_hub_prefix:
@@ -190,6 +191,10 @@ def create_model(
                 model = CoCa(**model_cfg, cast_dtype=cast_dtype)
             else:
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
+        
+        elif force_byol_clip:
+            model = BYOLCLIP(**model_cfg, cast_dtype=cast_dtype)
+            logging.debug("BYOL MODEL LOADED")
         else:
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
@@ -272,6 +277,16 @@ def create_loss(args):
             cosinereg = args.cosinereg,
             reg_threshold=args.reg_threshold
         )
+    elif args.force_byol_clip: 
+        logging.debug("BYOL LOSS INITIALISED")
+        return BYOLCLIPLOSS(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod
+        )
     
     return ClipLoss(
         local_loss=args.local_loss,
@@ -300,6 +315,7 @@ def create_model_and_transforms(
         aug_cfg: Optional[Union[Dict[str, Any], AugmentationCfg]] = None,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
+        force_byol_clip: bool = False,
 ):
     model = create_model(
         model_name,
@@ -315,6 +331,7 @@ def create_model_and_transforms(
         pretrained_hf=pretrained_hf,
         cache_dir=cache_dir,
         output_dict=output_dict,
+        force_byol_clip=force_byol_clip
     )
 
     image_mean = image_mean or getattr(model.visual, 'image_mean', None)
@@ -349,6 +366,7 @@ def create_model_from_pretrained(
         image_mean: Optional[Tuple[float, ...]] = None,
         image_std: Optional[Tuple[float, ...]] = None,
         cache_dir: Optional[str] = None,
+        force_byol_clip: Optional[bool] = False,
 ):
     model = create_model(
         model_name,
@@ -361,6 +379,7 @@ def create_model_from_pretrained(
         force_image_size=force_image_size,
         cache_dir=cache_dir,
         require_pretrained=True,
+        force_byol_clip = force_byol_clip,
     )
 
     if not return_transform:

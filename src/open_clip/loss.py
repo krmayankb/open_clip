@@ -262,4 +262,42 @@ class CosRegLoss(ClipLoss):
             return {"cosine_reg": loss_regularization, "contrastive_loss": cliploss}
         
         return cliploss, loss_regularization
+
+class BYOLCLIPLOSS(ClipLoss):
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False
+                 ):
+        super().__init__(local_loss, 
+                         gather_with_grad, 
+                         cache_labels, 
+                         rank, world_size, 
+                         use_horovod
+                         )
+        
+    def byol_loss(self, x, y):
+
+        x = F.normalize(x, dim=-1, p=2)
+        y = F.normalize(y, dim=-1, p=2)
+        return 2 - 2 * torch.sum(x*y)
     
+    def forward(self, 
+                image_features, 
+                text_features, 
+                logit_scale, 
+                clip_predictor_features, 
+                byol_features, 
+                output_dict=False
+                ): 
+        
+        byol_loss = self.byol_loss(clip_predictor_features, byol_features)
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False)
+
+        if output_dict:
+            return {"byol_loss": byol_loss, "contrastive_loss": cliploss}
+        
+        return cliploss, byol_loss

@@ -231,7 +231,9 @@ def main(args):
         image_std=args.image_std,
         aug_cfg=args.aug_cfg,
         output_dict=True,
+        force_byol_clip = args.force_byol_clip
     )
+
     if args.distill:
         # FIXME: currenlty assumes the model your distilling from has the same tokenizer & transforms.
         dist_model, _, _ = create_model_and_transforms(
@@ -333,7 +335,7 @@ def main(args):
             # loading a bare (model only) checkpoint for fine-tune or evaluation
             model.load_state_dict(checkpoint)
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
-
+                
     # initialize datasets
     data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
     assert len(data), 'At least one train or eval dataset must be specified.'

@@ -443,3 +443,138 @@ def resize_pos_embed(state_dict, model, interpolation: str = 'bicubic', antialia
     else:
         new_pos_embed = pos_emb_img
     state_dict['visual.positional_embedding'] = new_pos_embed
+
+# BYOL + CLIP implementation
+import random
+import torchvision.transforms as T
+import copy 
+class RandomApply(nn.Module):
+    def __init__(self, fn, p):
+        super().__init__()
+        self.fn = fn
+        self.p = p
+    def forward(self, x):
+        if random.random() > self.p:
+            return x
+        return self.fn(x)
+
+def default(val, def_val):
+    return def_val if val is None else val
+
+
+def MLP(dim, projection_size, hidden_size=4096):
+    return nn.Sequential(
+        nn.Linear(dim, hidden_size),
+        nn.BatchNorm1d(hidden_size),
+        nn.GELU(),
+        nn.Linear(hidden_size, projection_size)
+    )
+
+class BYOLCLIP(nn.Module):
+    output_dict: torch.jit.Final[bool]
+
+    def __init__(
+            self,
+            embed_dim: int,
+            vision_cfg: CLIPVisionCfg,
+            text_cfg: CLIPTextCfg,
+            quick_gelu: bool = False,
+            cast_dtype: Optional[torch.dtype] = None,
+            output_dict: bool = False,
+            image_size: int = 224,
+            augment_fn1 = None,
+            augment_fn2 = None, 
+            moving_average_decay : float = 0.99
+            ) -> None:
+        super().__init__()
+        self.output_dict = output_dict
+        self.moving_average_decay = moving_average_decay
+        
+        self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
+        self.target_encoder = copy.deepcopy(self.visual)
+
+        text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
+        self.transformer = text.transformer
+        self.vocab_size = text.vocab_size
+        self.token_embedding = text.token_embedding
+        self.positional_embedding = text.positional_embedding
+        self.ln_final = text.ln_final
+        self.text_projection = text.text_projection
+        self.register_buffer('attn_mask', text.attn_mask, persistent=False)
+
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+
+        DEFAULT_AUG = torch.nn.Sequential(
+            RandomApply(
+                T.ColorJitter(0.8, 0.8, 0.8,0.2),
+                p=0.2
+            ), 
+            T.RandomGrayscale(p=0.2),
+            T.RandomHorizontalFlip(), 
+            RandomApply(
+                T.GaussianBlur((3,3), (1.0, 2.0)),
+                p=0.2
+            ), 
+            T.RandomResizedCrop(image_size), 
+            T.Normalize(
+                mean=torch.tensor([0.485, 0.456, 0.406]), 
+                std=torch.tensor([0.229, 0.224, 0.225])
+            )
+        )
+        self.augment1 = default(augment_fn1, DEFAULT_AUG)
+        self.augment2 = default(augment_fn2, self.augment1)
+
+        self.online_predictor = MLP(512, 512)
+
+    def update_target_encoder(self):
+        alpha = self.moving_average_decay
+        for teacher_param, student_param in zip(self.target_encoder.parameters(), self.visual.parameters()):
+            teacher_param.data = alpha * teacher_param.data + (1 - alpha) * student_param.data.detach()
+
+    @torch.jit.ignore
+    def set_grad_checkpointing(self, enable=True):
+        self.visual.set_grad_checkpointing(enable)
+        self.transformer.grad_checkpointing = enable   
+
+    def encode_image(self, image, normalize: bool = False):
+        features = self.visual(image)
+        return F.normalize(features, dim=-1) if normalize else features
+
+    @torch.no_grad()
+    def encode_target_image(self, image, normalize: bool = False):
+        features = self.target_encoder(image)
+        return F.normalize(features, dim=-1) if normalize else features         
+    
+    def encode_text(self, text, normalize: bool = False):
+        cast_dtype = self.transformer.get_cast_dtype()
+
+        x = self.token_embedding(text).to(cast_dtype)  # [batch_size, n_ctx, d_model]
+
+        x = x + self.positional_embedding.to(cast_dtype)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x, attn_mask=self.attn_mask)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_final(x)  # [batch_size, n_ctx, transformer.width]
+        # take features from the eot embedding (eot_token is the highest number in each sequence)
+        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
+        return F.normalize(x, dim=-1) if normalize else x
+    
+    def forward(self, image, text):
+        clip_image = self.augment1(image)
+        byol_image = self.augment2(image)
+
+        clip_image_features = self.encode_image(clip_image)
+        byol_image_features = self.encode_target_image(byol_image)
+        clip_predictor_features = self.online_predictor(clip_image_features)
+        
+        text_features = self.encode_text(text)
+        if self.output_dict:
+            return {
+                "image_features": clip_image_features,
+                "text_features": text_features,
+                "clip_predictor_features": clip_predictor_features, 
+                "byol_features": byol_image_features, 
+                "logit_scale": self.logit_scale.exp()
+            }
+
+        return clip_image_features, text_features, self.logit_scale.exp(), clip_predictor_features, byol_image_features
