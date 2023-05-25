@@ -447,7 +447,37 @@ def parse_args(args):
         "--force_byol_clip", 
         default=False,
         action="store_true", 
-        help="use byol and clip loss combined for trainining"
+        help="use byol and clip loss combined for training"
+    )
+    parser.add_argument(
+        "--centered_clip", 
+        default=False,
+        action="store_true", 
+        help="centering before calcualting clip loss"
+    )
+    parser.add_argument(
+        "--byol_beta_base_ema", 
+        default=0.99,
+        type=float,
+        help="base value for beta scheduling for byol training"
+    )
+    parser.add_argument(
+        "--normal_dist_var", 
+        default=0.2,
+        type=float,
+        help="variance in normal distribution for cosine regularization"
+    )    
+    parser.add_argument(
+        "--svd_cosinereg",
+        type=float,
+        default=0.01,
+        help="regularization term for cosine regularization with SVD",
+    )
+    parser.add_argument(
+        "--apply_normal_dist",
+        default=False,
+        action="store_true",
+        help="whether to apply normal distribution in regularization",
     )
     args = parser.parse_args(args)
 

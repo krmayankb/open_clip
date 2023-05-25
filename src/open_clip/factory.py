@@ -13,7 +13,7 @@ from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, BYOLCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype
 from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, CosRegLoss, BYOLCLIPLOSS
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, CosRegLoss, BYOLCLIPLOSS, CenteredClipLoss, SVDCosRegLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained, list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform, AugmentationCfg
@@ -194,7 +194,6 @@ def create_model(
         
         elif force_byol_clip:
             model = BYOLCLIP(**model_cfg, cast_dtype=cast_dtype)
-            logging.debug("BYOL MODEL LOADED")
         else:
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
@@ -277,9 +276,29 @@ def create_loss(args):
             cosinereg = args.cosinereg,
             reg_threshold=args.reg_threshold
         )
+    elif args.svd_cosinereg:
+        return SVDCosRegLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+            svd_cosinereg = args.svd_cosinereg,
+            apply_normal_dist=args.apply_normal_dist,
+            normal_dist_var=args.normal_dist_var
+        )
     elif args.force_byol_clip: 
-        logging.debug("BYOL LOSS INITIALISED")
         return BYOLCLIPLOSS(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod
+        )
+    elif args.centered_clip: 
+        return CenteredClipLoss(
             local_loss=args.local_loss,
             gather_with_grad=args.gather_with_grad,
             cache_labels=True,

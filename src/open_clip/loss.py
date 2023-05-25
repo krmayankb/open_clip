@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -278,26 +279,128 @@ class BYOLCLIPLOSS(ClipLoss):
                          rank, world_size, 
                          use_horovod
                          )
-        
-    def byol_loss(self, x, y):
-
-        x = F.normalize(x, dim=-1, p=2)
-        y = F.normalize(y, dim=-1, p=2)
-        return 2 - 2 * torch.sum(x*y)
-    
     def forward(self, 
                 image_features, 
                 text_features, 
                 logit_scale, 
-                clip_predictor_features, 
-                byol_features, 
+                batch_byol_loss, 
                 output_dict=False
                 ): 
         
-        byol_loss = self.byol_loss(clip_predictor_features, byol_features)
-        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False)
+        byol_loss = batch_byol_loss
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) * 0.001
+
+        if byol_loss.grad is None: 
+            byol_loss.requires_grad_(True)
 
         if output_dict:
             return {"byol_loss": byol_loss, "contrastive_loss": cliploss}
         
         return cliploss, byol_loss
+
+class CenteredClipLoss(ClipLoss):
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False
+                 ):
+        
+        super().__init__(local_loss=local_loss, 
+                         gather_with_grad=gather_with_grad, 
+                         cache_labels=cache_labels, 
+                         rank=rank, 
+                         world_size=world_size, 
+                         use_horovod=use_horovod)
+
+    def forward(self, image_features, text_features, logit_scale, output_dict=False):
+        
+        image_features = image_features - torch.mean(image_features, dim=0)
+        text_features = text_features - torch.mean(text_features, dim=0) 
+        
+        #CLIP Loss 
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False)
+        
+        if output_dict:
+            return {"contrastive_loss": cliploss}
+        
+        return cliploss 
+    
+
+# SVD based dimension removal and centering - Cosine Regularization 
+class SVDCosRegLoss(ClipLoss):
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False,
+                 svd_cosinereg = 0.01, 
+                 apply_normal_dist = False, 
+                 normal_dist_var = 0.25):
+        
+        super().__init__(local_loss=local_loss, 
+                         gather_with_grad=gather_with_grad, 
+                         cache_labels=cache_labels, 
+                         rank=rank, 
+                         world_size=world_size, 
+                         use_horovod=use_horovod)
+        
+        self.svd_cosinereg = svd_cosinereg
+        self.apply_normal_dist = apply_normal_dist
+        self.normal_dist_var = normal_dist_var
+    
+    def remove_top_d(self, features):
+        topk= features.shape[0]//100
+        u, s, v = torch.svd(features)
+        features = torch.matmul(u[:, topk:], torch.matmul(torch.diag(s[topk:]), v.T[topk:, :]))
+        return features
+
+    def remove_mean(self, features, dim=0):
+        features = features - torch.mean(features, dim=dim, keepdim=True)
+        return features
+    
+    def process_features(self, features):
+        features = self.remove_mean(features, dim=0)
+        features = self.remove_top_d(features)
+        return features
+    
+    def apply_normal_distribution(self, matrix, var):
+        coefficient = 1 / (var * math.sqrt(2 * math.pi))
+        exponent = -0.5 * torch.square(torch.div(matrix, var))
+        result = torch.exp(exponent) * coefficient
+        return result
+    
+    def get_modality_cosine_reg(self, features):
+        batch_size = features.shape[0]
+        
+        # calculate dot product of all the representations 
+        dot_products = torch.matmul(features, features.t())
+        if self.apply_normal_dist: 
+            dot_products = self.apply_normal_distribution(dot_products, var=self.normal_dist_var)
+
+        # Exclude the dot products of representation with itself 
+        dot_products -= torch.diag(torch.diag(dot_products))
+        loss = torch.sum(dot_products)/(batch_size * (batch_size - 1))
+        return loss
+
+
+    def forward(self, image_features, text_features, logit_scale, output_dict=False):
+        # print("DEBUG: ", self.svd_cosinereg, self.apply_normal_dist, self.normal_dist_var)
+        new_image_features = self.process_features(image_features)
+        new_text_features = self.process_features(text_features)
+
+        #CLIP Loss 
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False)
+
+        #Regularization term on image 
+        image_reg_loss = self.get_modality_cosine_reg(new_image_features) 
+        text_reg_loss = self.get_modality_cosine_reg(new_text_features)
+        loss_regularization = self.svd_cosinereg * (image_reg_loss + text_reg_loss)
+        if output_dict:
+            return {"reg_loss": loss_regularization, "contrastive_loss": cliploss}
+        
+        return cliploss, loss_regularization
