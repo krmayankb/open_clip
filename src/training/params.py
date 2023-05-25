@@ -442,24 +442,23 @@ def parse_args(args):
         action="store_true", 
         help="this will disable gradients in text transformer"
     )
-
-    parser.add_argument(
-        "--force_byol_clip", 
-        default=False,
-        action="store_true", 
-        help="use byol and clip loss combined for training"
-    )
+    # parser.add_argument(
+    #     "--force_byol_clip", 
+    #     default=False,
+    #     action="store_true", 
+    #     help="use byol and clip loss combined for training"
+    # )
+    # parser.add_argument(
+    #     "--byol_beta_base_ema", 
+    #     default=0.99,
+    #     type=float,
+    #     help="base value for beta scheduling for byol training"
+    # )
     parser.add_argument(
         "--centered_clip", 
         default=False,
         action="store_true", 
         help="centering before calcualting clip loss"
-    )
-    parser.add_argument(
-        "--byol_beta_base_ema", 
-        default=0.99,
-        type=float,
-        help="base value for beta scheduling for byol training"
     )
     parser.add_argument(
         "--normal_dist_var", 

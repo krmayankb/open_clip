@@ -446,144 +446,144 @@ def resize_pos_embed(state_dict, model, interpolation: str = 'bicubic', antialia
 
 
 ## BYOL CLIP IMPLEMENTATION 
-import random 
-import torchvision.transforms as T 
-import copy 
-class RandomApply(nn.Module):
-    def __init__(self, func, prob) -> None:
-        super().__init__()
-        self.func = func
-        self.prob = prob
+# import random 
+# import torchvision.transforms as T 
+# import copy 
+# class RandomApply(nn.Module):
+#     def __init__(self, func, prob) -> None:
+#         super().__init__()
+#         self.func = func
+#         self.prob = prob
 
-    def forward(self, img):
-        if random.random() > self.prob:
-            return img 
-        return self.func(img)
+#     def forward(self, img):
+#         if random.random() > self.prob:
+#             return img 
+#         return self.func(img)
 
 
-class MLP(nn.Module):
-    def __init__(self, dim, proj_size, hidden_size=4096) -> None:
-        super().__init__()
-        self.dim = dim 
-        self.proj_size = proj_size
-        self.hidden_size = hidden_size
+# class MLP(nn.Module):
+#     def __init__(self, dim, proj_size, hidden_size=4096) -> None:
+#         super().__init__()
+#         self.dim = dim 
+#         self.proj_size = proj_size
+#         self.hidden_size = hidden_size
     
-    def __call__(self, ) -> Any:
-        return nn.Sequential(
-            nn.Linear(self.dim, self.hidden_size), 
-            nn.BatchNorm1d(self.hidden_size), 
-            nn.ReLU(inplace=True), 
-            nn.Linear(self.hidden_size, self.proj_size)
-        )
+#     def __call__(self, ) -> Any:
+#         return nn.Sequential(
+#             nn.Linear(self.dim, self.hidden_size), 
+#             nn.BatchNorm1d(self.hidden_size), 
+#             nn.ReLU(inplace=True), 
+#             nn.Linear(self.hidden_size, self.proj_size)
+#         )
     
-def byol_loss(vect1, vect2):
-    vect1 = F.normalize(vect1, dim=-1, p=2)
-    vect2 = F.normalize(vect2, dim=-1, p=2)
-    return torch.sum((vect1-vect2)**2, dim=-1).mean()
+# def byol_loss(vect1, vect2):
+#     vect1 = F.normalize(vect1, dim=-1, p=2)
+#     vect2 = F.normalize(vect2, dim=-1, p=2)
+#     return torch.sum((vect1-vect2)**2, dim=-1).mean()
 
 
-class BYOLCLIP(nn.Module):
-    output_dict = torch.jit.Final[bool]
+# class BYOLCLIP(nn.Module):
+#     output_dict: torch.jit.Final[bool]
 
-    def __init__(
-            self,
-            embed_dim: int,
-            vision_cfg: CLIPVisionCfg,
-            text_cfg: CLIPTextCfg,
-            quick_gelu: bool = False,
-            cast_dtype: Optional[torch.dtype] = None,
-            output_dict: bool = False,
-    ):
-        super().__init__()
-        self.output_dict = output_dict
-        self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
+#     def __init__(
+#             self,
+#             embed_dim: int,
+#             vision_cfg: CLIPVisionCfg,
+#             text_cfg: CLIPTextCfg,
+#             quick_gelu: bool = False,
+#             cast_dtype: Optional[torch.dtype] = None,
+#             output_dict: bool = False,
+#     ):
+#         super().__init__()
+#         self.output_dict = output_dict
+#         self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
 
-        text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
-        self.transformer = text.transformer
-        self.vocab_size = text.vocab_size
-        self.token_embedding = text.token_embedding
-        self.positional_embedding = text.positional_embedding
-        self.ln_final = text.ln_final
-        self.text_projection = text.text_projection
-        self.register_buffer('attn_mask', text.attn_mask, persistent=False)
+#         text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
+#         self.transformer = text.transformer
+#         self.vocab_size = text.vocab_size
+#         self.token_embedding = text.token_embedding
+#         self.positional_embedding = text.positional_embedding
+#         self.ln_final = text.ln_final
+#         self.text_projection = text.text_projection
+#         self.register_buffer('attn_mask', text.attn_mask, persistent=False)
 
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+#         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         
-        # BYOL specific parameters 
-        self.target_encoder = copy.deepcopy(self.visual.detach())
-        self.target_encoder = self.target_encoder.requires_grad_(False)
-        self.online_predictor = MLP(512, 512)
-        self.register_buffer('training_step', torch.tensor(0), persistent=False)
-        self.augment = torch.nn.Sequential(
-            RandomApply(
-                T.ColorJitter(0.8, 0.8, 0.8, 0.2),
-                prob=0.2
-            ), 
-            T.RandomGrayscale(p=0.2),
-            T.RandomHorizontalFlip(), 
-            RandomApply(
-                T.GaussianBlur((3,3), (1.0, 2.0)),
-                prob=0.2
-            ), 
-            T.RandomResizedCrop(224)
-        )
+#         # BYOL specific parameters 
+#         self.target_encoder = copy.deepcopy(self.visual.detach())
+#         self.target_encoder = self.target_encoder.requires_grad_(False)
+#         self.online_predictor = MLP(512, 512)
+#         self.register_buffer('training_step', torch.tensor(0), persistent=False)
+#         self.augment = torch.nn.Sequential(
+#             RandomApply(
+#                 T.ColorJitter(0.8, 0.8, 0.8, 0.2),
+#                 prob=0.2
+#             ), 
+#             T.RandomGrayscale(p=0.2),
+#             T.RandomHorizontalFlip(), 
+#             RandomApply(
+#                 T.GaussianBlur((3,3), (1.0, 2.0)),
+#                 prob=0.2
+#             ), 
+#             T.RandomResizedCrop(224)
+#         )
 
-    @torch.jit.ignore
-    def set_grad_checkpointing(self, enable=True):
-        self.visual.set_grad_checkpointing(enable)
-        self.transformer.grad_checkpointing = enable
+#     @torch.jit.ignore
+#     def set_grad_checkpointing(self, enable=True):
+#         self.visual.set_grad_checkpointing(enable)
+#         self.transformer.grad_checkpointing = enable
 
-    def encode_image(self, image, normalize: bool = False):
-        features = self.visual(image)
-        return F.normalize(features, dim=-1) if normalize else features
+#     def encode_image(self, image, normalize: bool = False):
+#         features = self.visual(image)
+#         return F.normalize(features, dim=-1) if normalize else features
     
-    def encode_text(self, text, normalize: bool = False):
-        cast_dtype = self.transformer.get_cast_dtype()
+#     def encode_text(self, text, normalize: bool = False):
+#         cast_dtype = self.transformer.get_cast_dtype()
 
-        x = self.token_embedding(text).to(cast_dtype)  # [batch_size, n_ctx, d_model]
+#         x = self.token_embedding(text).to(cast_dtype)  # [batch_size, n_ctx, d_model]
 
-        x = x + self.positional_embedding.to(cast_dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x, attn_mask=self.attn_mask)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = self.ln_final(x)  # [batch_size, n_ctx, transformer.width]
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
-        return F.normalize(x, dim=-1) if normalize else x
+#         x = x + self.positional_embedding.to(cast_dtype)
+#         x = x.permute(1, 0, 2)  # NLD -> LND
+#         x = self.transformer(x, attn_mask=self.attn_mask)
+#         x = x.permute(1, 0, 2)  # LND -> NLD
+#         x = self.ln_final(x)  # [batch_size, n_ctx, transformer.width]
+#         # take features from the eot embedding (eot_token is the highest number in each sequence)
+#         x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
+#         return F.normalize(x, dim=-1) if normalize else x
     
-    # BYOL SPECIFIC 
-    def update_target_encoder(self, beta_schedular: list):
-        alpha = beta_schedular[self.training_step]
-        for target, online in zip(self.target_encoder.parameters(), self.visual.parameters()):
-            target.data = alpha * target.data + (1-alpha) * online.data.detach()
-            self.training_step += 1
-            return alpha
+#     # BYOL SPECIFIC 
+#     def update_target_encoder(self, beta_schedular: list):
+#         alpha = beta_schedular[self.training_step]
+#         for target, online in zip(self.target_encoder.parameters(), self.visual.parameters()):
+#             target.data = alpha * target.data + (1-alpha) * online.data.detach()
+#             self.training_step += 1
+#             return alpha
     
-    @torch.no_grad()
-    def encode_target_image(self, image, normalize: bool = False):
-        features = self.target_encoder(image)
-        return F.normalize(features, dim=-1) if normalize else features
+#     @torch.no_grad()
+#     def encode_target_image(self, image, normalize: bool = False):
+#         features = self.target_encoder(image)
+#         return F.normalize(features, dim=-1) if normalize else features
 
-    def forward(self, image, text): 
-        # CLIP features 
-        image_features = self.encode_image(image)
-        text_features = self.encode_text(text)
+#     def forward(self, image, text): 
+#         # CLIP features 
+#         image_features = self.encode_image(image)
+#         text_features = self.encode_text(text)
 
-        # BYOL features 
-        image1 = self.augment(image)
-        image_features1 = self.encode_image(image1)
-        pred_features1 = self.online_predictor(image_features1)
-        with torch.no_grad():
-            image2 = self.augment(image)
-            byol_image = self.encode_target_image(image2)
+#         # BYOL features 
+#         image1 = self.augment(image)
+#         image_features1 = self.encode_image(image1)
+#         pred_features1 = self.online_predictor(image_features1)
+#         with torch.no_grad():
+#             image2 = self.augment(image)
+#             byol_image = self.encode_target_image(image2)
 
-        b_loss = byol_loss(byol_image, pred_features1)
-        if self.output_dict: 
-            return {
-                "image_features"    : image_features, 
-                "text_features"     : text_features, 
-                "logit_scale"       : self.logit_scale.exp(), 
-                "batch_byol_loss"   : b_loss
-            }
-        return image_features, text_features, self.logit_scale.exp(), b_loss
+#         b_loss = byol_loss(byol_image, pred_features1)
+#         if self.output_dict: 
+#             return {
+#                 "image_features"    : image_features, 
+#                 "text_features"     : text_features, 
+#                 "logit_scale"       : self.logit_scale.exp(), 
+#                 "batch_byol_loss"   : b_loss
+#             }
+#         return image_features, text_features, self.logit_scale.exp(), b_loss
     

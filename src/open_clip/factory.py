@@ -119,7 +119,7 @@ def create_model(
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
         require_pretrained: bool = False,
-        force_byol_clip: bool = False
+        # force_byol_clip: bool = False
 ):
     has_hf_hub_prefix = model_name.startswith(HF_HUB_PREFIX)
     if has_hf_hub_prefix:
@@ -192,8 +192,8 @@ def create_model(
             else:
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         
-        elif force_byol_clip:
-            model = BYOLCLIP(**model_cfg, cast_dtype=cast_dtype)
+        # elif force_byol_clip:
+        #     model = BYOLCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
             model = CLIP(**model_cfg, cast_dtype=cast_dtype)
 
@@ -288,15 +288,15 @@ def create_loss(args):
             apply_normal_dist=args.apply_normal_dist,
             normal_dist_var=args.normal_dist_var
         )
-    elif args.force_byol_clip: 
-        return BYOLCLIPLOSS(
-            local_loss=args.local_loss,
-            gather_with_grad=args.gather_with_grad,
-            cache_labels=True,
-            rank=args.rank,
-            world_size=args.world_size,
-            use_horovod=args.horovod
-        )
+    # elif args.force_byol_clip: 
+    #     return BYOLCLIPLOSS(
+    #         local_loss=args.local_loss,
+    #         gather_with_grad=args.gather_with_grad,
+    #         cache_labels=True,
+    #         rank=args.rank,
+    #         world_size=args.world_size,
+    #         use_horovod=args.horovod
+    #     )
     elif args.centered_clip: 
         return CenteredClipLoss(
             local_loss=args.local_loss,
@@ -334,7 +334,7 @@ def create_model_and_transforms(
         aug_cfg: Optional[Union[Dict[str, Any], AugmentationCfg]] = None,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
-        force_byol_clip: bool = False,
+        # force_byol_clip: bool = False,
 ):
     model = create_model(
         model_name,
@@ -350,7 +350,7 @@ def create_model_and_transforms(
         pretrained_hf=pretrained_hf,
         cache_dir=cache_dir,
         output_dict=output_dict,
-        force_byol_clip=force_byol_clip
+        # force_byol_clip=force_byol_clip
     )
 
     image_mean = image_mean or getattr(model.visual, 'image_mean', None)
@@ -385,7 +385,7 @@ def create_model_from_pretrained(
         image_mean: Optional[Tuple[float, ...]] = None,
         image_std: Optional[Tuple[float, ...]] = None,
         cache_dir: Optional[str] = None,
-        force_byol_clip: Optional[bool] = False,
+        # force_byol_clip: Optional[bool] = False,
 ):
     model = create_model(
         model_name,
@@ -398,7 +398,7 @@ def create_model_from_pretrained(
         force_image_size=force_image_size,
         cache_dir=cache_dir,
         require_pretrained=True,
-        force_byol_clip = force_byol_clip,
+        # force_byol_clip = force_byol_clip,
     )
 
     if not return_transform:
