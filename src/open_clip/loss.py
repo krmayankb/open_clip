@@ -264,39 +264,39 @@ class CosRegLoss(ClipLoss):
         
         return cliploss, loss_regularization
 
-# class BYOLCLIPLOSS(ClipLoss):
-#     def __init__(self, 
-#                  local_loss=False, 
-#                  gather_with_grad=False, 
-#                  cache_labels=False, 
-#                  rank=0, 
-#                  world_size=1, 
-#                  use_horovod=False
-#                  ):
-#         super().__init__(local_loss, 
-#                          gather_with_grad, 
-#                          cache_labels, 
-#                          rank, world_size, 
-#                          use_horovod
-#                          )
-#     def forward(self, 
-#                 image_features, 
-#                 text_features, 
-#                 logit_scale, 
-#                 batch_byol_loss, 
-#                 output_dict=False
-#                 ): 
+class BYOLCLIPLOSS(ClipLoss):
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False
+                 ):
+        super().__init__(local_loss, 
+                         gather_with_grad, 
+                         cache_labels, 
+                         rank, world_size, 
+                         use_horovod
+                         )
+    def forward(self, 
+                image_features, 
+                text_features, 
+                logit_scale, 
+                batch_byol_loss, 
+                output_dict=False
+                ): 
         
-#         byol_loss = batch_byol_loss
-#         cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) * 0.001
+        byol_loss = batch_byol_loss
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) * 0.001
 
-#         if byol_loss.grad is None: 
-#             byol_loss.requires_grad_(True)
+        if byol_loss.grad is None: 
+            byol_loss.requires_grad_(True)
 
-#         if output_dict:
-#             return {"byol_loss": byol_loss, "contrastive_loss": cliploss}
+        if output_dict:
+            return {"byol_loss": byol_loss, "contrastive_loss": cliploss}
         
-#         return cliploss, byol_loss
+        return cliploss, byol_loss
 
 class CenteredClipLoss(ClipLoss):
     def __init__(self, 

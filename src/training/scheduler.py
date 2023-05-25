@@ -52,14 +52,14 @@ def cosine_lr(optimizer, base_lr, warmup_length, steps):
         return lr
     return _lr_adjuster
 
-# def cosine_scheduler_byol(base_value, final_value, total_steps, warmup_steps=0, start_warmup_value=0):
-#     warmup_schedule = np.array([])
-#     if warmup_steps > 0:
-#         warmup_schedule = np.linspace(start_warmup_value, base_value, warmup_steps)
+def cosine_scheduler_byol(base_value, final_value, total_steps, warmup_steps=0, start_warmup_value=0):
+    warmup_schedule = np.array([])
+    if warmup_steps > 0:
+        warmup_schedule = np.linspace(start_warmup_value, base_value, warmup_steps)
 
-#     iters = np.arange(total_steps - warmup_steps)
-#     schedule = final_value + 0.5 * (base_value - final_value) * (1 + np.cos(np.pi * iters / len(iters)))
+    iters = np.arange(total_steps - warmup_steps)
+    schedule = final_value + 0.5 * (base_value - final_value) * (1 + np.cos(np.pi * iters / len(iters)))
 
-#     schedule = np.concatenate((warmup_schedule, schedule))
-#     assert len(schedule) == total_steps
-#     return schedule
+    schedule = np.concatenate((warmup_schedule, schedule))
+    assert len(schedule) == total_steps
+    return schedule

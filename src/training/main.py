@@ -231,7 +231,7 @@ def main(args):
         image_std=args.image_std,
         aug_cfg=args.aug_cfg,
         output_dict=True,
-        # force_byol_clip = args.force_byol_clip
+        force_byol_clip = args.force_byol_clip
     )
 
     if args.distill:
@@ -280,7 +280,10 @@ def main(args):
         if args.ddp_static_graph:
             # this doesn't exist in older PyTorch, arg only added if enabled
             ddp_args['static_graph'] = True
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], find_unused_parameters=False, **ddp_args)
+        if args.force_byol_clip:
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], find_unused_parameters=True, **ddp_args)
+        else:     
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], find_unused_parameters=False, **ddp_args)
     
         if args.distill:
             dist_model = torch.nn.parallel.DistributedDataParallel(dist_model, device_ids=[device], **ddp_args)
@@ -360,8 +363,8 @@ def main(args):
                 f'Unknown scheduler, {args.lr_scheduler}. Available options are: cosine, const, const-cooldown.')
             exit(1)
 
-        # if args.force_byol_clip: 
-        #     beta_schedular = cosine_scheduler_byol(args.byol_beta_base_ema, 1, total_steps, warmup_steps=args.warmup)
+        if args.force_byol_clip: 
+            beta_schedular = cosine_scheduler_byol(args.byol_beta_base_ema, 1, total_steps, warmup_steps=args.warmup)
 
     # determine if this worker should save logs and checkpoints. only do so if it is rank == 0
     args.save_logs = args.logs and args.logs.lower() != 'none' and is_master(args)
@@ -396,14 +399,13 @@ def main(args):
         return
 
     loss = create_loss(args)
-
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
-        # if args.force_byol_clip:
-        #     train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer, beta_schedular=beta_schedular)
-        # else: 
-        #     train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
+        if args.force_byol_clip:
+            train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer, beta_schedular=beta_schedular)
+        else: 
+            train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
