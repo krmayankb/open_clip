@@ -1,5 +1,5 @@
 cd /mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src
-torchrun --nproc_per_node 2 --master_port 3234 -m training.main \
+torchrun --nproc_per_node 2 --master_port 2345 -m training.main \
     --model "ViT-B-16" \
     --train-data "/mmfs1/data/yfcc-tmp/cc_3m/train_shards/shard_{000000..003318}.tar" \
     --imagenet-val "/mmfs1/data/yfcc-tmp/imagenet/val/" \
@@ -7,8 +7,7 @@ torchrun --nproc_per_node 2 --master_port 3234 -m training.main \
     --precision amp \
     --gather-with-grad \
     --local-loss \
-    --force_byol_clip \
-    --byol_beta_base_ema 0.99 \
+    --svd_cosinereg 0.01 \
     --batch-size 256 \
     --accum-freq 2 \
     --workers 4 \
@@ -17,6 +16,8 @@ torchrun --nproc_per_node 2 --master_port 3234 -m training.main \
     --zeroshot-frequency 2 \
     --seed 0 \
     --report-to 'wandb' \
-    --wandb-project-name "byol_clip_training" \
-    --logs "/mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/byol_clip" \
-    --name "byol_asym_clip_orig_b256_accum_2_ep40_emabase0_99_lossWgt_1e-3_grad_clip_norm_1_V5" 
+    --wandb-project-name "clip_svd_training" \
+    --normal_dist_var 0.25 \
+    --apply_normal_dist \
+    --logs "/mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/clip_svd" \
+    --name "clip_svd_b256_accum_2_ep40_reg0.01_normaldist_0.25" \

@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --account=krishna
-#SBATCH --partition=gpu-a100
-#SBATCH --job-name=newtrain
-#SBATCH --error=./jobs/greater_threshold/job.err.%j
-#SBATCH --output=./jobs/greater_threshold/job.run.%j
-#SBATCH --time=6-15:00:00
+#SBATCH --partition=gpu-a40
+#SBATCH --job-name=SVD
+#SBATCH --error=./jobs/clip_svd/job.err.%j  
+#SBATCH --output=./jobs/clip_svd/job.run.%j
+#SBATCH --time=10-00:00:00
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=2
 #SBATCH --mem-per-gpu=80G
@@ -12,4 +12,4 @@
 #SBATCH --mail-user=krmayank@uw.edu
 #SBATCH --mail-type=ALL
 
-bash train.sh
+bash svd_train.sh
