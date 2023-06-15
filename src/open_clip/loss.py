@@ -287,11 +287,11 @@ class BYOLCLIPLOSS(ClipLoss):
                 output_dict=False
                 ): 
         
-        byol_loss = batch_byol_loss
-        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) * 0.001
+        byol_loss = batch_byol_loss * 1000
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) 
 
-        if byol_loss.grad is None: 
-            byol_loss.requires_grad_(True)
+        # if byol_loss.grad is None: 
+        #     byol_loss.requires_grad_(True)
 
         if output_dict:
             return {"byol_loss": byol_loss, "contrastive_loss": cliploss}
@@ -390,6 +390,7 @@ class SVDCosRegLoss(ClipLoss):
 
     def forward(self, image_features, text_features, logit_scale, output_dict=False):
         # print("DEBUG: ", self.svd_cosinereg, self.apply_normal_dist, self.normal_dist_var)
+        # print("DEBUG: ", type(self.svd_cosinereg), type(self.apply_normal_dist), type(self.normal_dist_var))
         new_image_features = self.process_features(image_features)
         new_text_features = self.process_features(text_features)
 
@@ -404,3 +405,35 @@ class SVDCosRegLoss(ClipLoss):
             return {"reg_loss": loss_regularization, "contrastive_loss": cliploss}
         
         return cliploss, loss_regularization
+    
+
+class DINOCLIPLOSS(ClipLoss):
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False
+                 ):
+        super().__init__(local_loss, 
+                         gather_with_grad, 
+                         cache_labels, 
+                         rank, world_size, 
+                         use_horovod
+                         )
+    def forward(self, 
+                image_features, 
+                text_features, 
+                logit_scale, 
+                loss, 
+                output_dict=False
+                ): 
+        
+        loss = loss * 1000
+        cliploss = super().forward(image_features, text_features, logit_scale, output_dict=False) 
+
+        if output_dict:
+            return {"dino_loss": loss, "contrastive_loss": cliploss}
+        
+        return cliploss, loss

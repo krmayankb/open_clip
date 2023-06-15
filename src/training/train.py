@@ -127,15 +127,15 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 losses = loss(**model_out, output_dict=True)
                 total_loss = sum(losses.values())
                 losses["loss"] = total_loss
-
-            if not args.force_byol_clip: 
-                backward(total_loss, scaler)
-            else: 
-                backward_byol(losses, scaler, model, clipping=True)
-                try:
-                    current_momentum = model.module.update_target_encoder(beta_schedular)
-                except: 
-                    current_momentum = model.update_target_encoder(beta_schedular)
+            backward(total_loss, scaler)
+            # if not args.force_byol_clip: 
+            #     backward(total_loss, scaler)
+            # else: 
+            #     backward_byol(losses, scaler, model, clipping=True)
+            #     try:
+            #         current_momentum = model.module.update_target_encoder(beta_schedular)
+            #     except: 
+            #         current_momentum = model.update_target_encoder(beta_schedular)
         else:
             # First, cache the features without any gradient tracking.
             with torch.no_grad():
@@ -177,14 +177,15 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                     del inputs
                     total_loss = sum(losses.values())
                     losses["loss"] = total_loss
-                if not args.force_byol_clip: 
-                    backward(total_loss, scaler)
-                else: 
-                    backward_byol(losses, scaler, model, clipping=True)
-                    try:
-                        current_momentum = model.module.update_target_encoder(beta_schedular)
-                    except: 
-                        current_momentum = model.update_target_encoder(beta_schedular)
+                backward(total_loss, scaler)
+                # if not args.force_byol_clip: 
+                #     backward(total_loss, scaler)
+                # else: 
+                #     backward_byol(losses, scaler, model, clipping=True)
+                #     try:
+                #         current_momentum = model.module.update_target_encoder(beta_schedular)
+                #     except: 
+                #         current_momentum = model.update_target_encoder(beta_schedular)
 
         if scaler is not None:
             if args.horovod:
@@ -204,6 +205,13 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             if args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
             optimizer.step()
+        
+        # UPDATE TARGET ENCODER AFTER TAKING THE OPTIMIZER STEP
+        if args.force_byol_clip: 
+            try:
+                current_momentum = model.module.update_target_encoder(beta_schedular)
+            except: 
+                current_momentum = model.update_target_encoder(beta_schedular)
 
         # reset gradient accum, if enabled
         if args.accum_freq > 1:
@@ -256,7 +264,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             }              
             if args.force_byol_clip:
                 gradients = [param.grad.norm().item() for param in model.parameters() if param.grad is not None]
-                log_data["beta_schedular"] = current_momentum
+                log_data["momentum"] = current_momentum
                 log_data["gradient_max"] = np.max(gradients)
                 log_data["gradient_median"] = np.median(gradients)
             

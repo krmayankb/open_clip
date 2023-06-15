@@ -19,4 +19,4 @@ torchrun --nproc_per_node 2 --master_port 3234 -m training.main \
     --report-to 'wandb' \
     --wandb-project-name "byol_clip_training" \
     --logs "/mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/byol_clip" \
-    --name "byol_asym_clip_orig_b256_accum_2_ep40_emabase0_99_lossWgt_1e-3_grad_clip_norm_1_V5" 
+    --name "byol_asym_clip_orig_b256_accum_2_ep40_emabase0_99_lossWgt_1k_update_after_optimizerstep" 

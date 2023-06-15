@@ -462,13 +462,14 @@ def parse_args(args):
     )
     parser.add_argument(
         "--normal_dist_var", 
-        default=0.2,
+        default=None,
         type=float,
         help="variance in normal distribution for cosine regularization"
     )    
     parser.add_argument(
         "--svd_cosinereg",
         default=None,
+        type=float,
         help="regularization term for cosine regularization with SVD",
     )
     parser.add_argument(

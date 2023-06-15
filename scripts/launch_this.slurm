@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --account=krishna
 #SBATCH --partition=gpu-a40
-#SBATCH --job-name=SVD
+#SBATCH --job-name=svd
 #SBATCH --error=./jobs/clip_svd/job.err.%j  
 #SBATCH --output=./jobs/clip_svd/job.run.%j
-#SBATCH --time=10-00:00:00
+#SBATCH --time=5-00:00:00
 #SBATCH --cpus-per-task=6
 #SBATCH --gpus=2
 #SBATCH --mem-per-gpu=80G
