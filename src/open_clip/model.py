@@ -184,9 +184,11 @@ class CLIP(nn.Module):
             quick_gelu: bool = False,
             cast_dtype: Optional[torch.dtype] = None,
             output_dict: bool = False,
+            use_mrl: bool = False
     ):
         super().__init__()
         self.output_dict = output_dict
+        self.use_mrl = use_mrl
         self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
 
         text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
@@ -228,8 +230,14 @@ class CLIP(nn.Module):
         return F.normalize(x, dim=-1) if normalize else x
 
     def forward(self, image, text):
-        image_features = self.encode_image(image, normalize=True)
-        text_features = self.encode_text(text, normalize=True)
+        if self.use_mrl:
+            # print("inside CLIP main class, using MRL")
+            image_features = self.encode_image(image, normalize=False)
+            text_features = self.encode_text(text, normalize=False)
+        else: 
+            image_features = self.encode_image(image, normalize=True)
+            text_features = self.encode_text(text, normalize=True)
+
         if self.output_dict:
             return {
                 "image_features": image_features,

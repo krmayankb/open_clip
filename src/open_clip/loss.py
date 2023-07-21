@@ -210,3 +210,38 @@ class DistillClipLoss(ClipLoss):
             return {"contrastive_loss": contrastive_loss, "distill_loss": distill_loss}
 
         return contrastive_loss, distill_loss
+
+class MRLClipLoss(ClipLoss): 
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False, 
+                 mrl_loss_weights = None):
+        super().__init__(local_loss, 
+                         gather_with_grad, 
+                         cache_labels, 
+                         rank, 
+                         world_size, 
+                         use_horovod)
+        self.mrl_loss_weights = mrl_loss_weights
+    
+    def forward(self, image_features, text_features, logit_scale, output_dict=False):
+        # print("Inside forward of MRL CLIP loss",len(self.mrl_loss_weights), self.mrl_loss_weights )
+
+        assert len(self.mrl_loss_weights) == 8, "list containing loss weights must contain 8 elements"
+        
+        dim_to_consider = [8, 16, 32, 64, 128, 256, 512, 768]
+        total_loss = 0 
+        for idx, dim in enumerate(dim_to_consider): 
+            img = F.normalize( image_features[:,:dim], dim=-1) # slice and normalize 
+            text = F.normalize( text_features[:,:dim], dim=-1) # slice and normalize 
+            loss = super().forward(image_features=img, text_features=text, logit_scale=logit_scale)
+            total_loss += self.mrl_loss_weights[idx] * loss
+        
+        if output_dict:
+            return {"mrl_clip_loss": total_loss}        
+        
+        return total_loss
