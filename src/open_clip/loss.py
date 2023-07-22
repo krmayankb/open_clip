@@ -219,7 +219,8 @@ class MRLClipLoss(ClipLoss):
                  rank=0, 
                  world_size=1, 
                  use_horovod=False, 
-                 mrl_loss_weights = None):
+                 mrl_loss_weights = None, 
+                 dim_to_consider=None):
         super().__init__(local_loss, 
                          gather_with_grad, 
                          cache_labels, 
@@ -227,15 +228,16 @@ class MRLClipLoss(ClipLoss):
                          world_size, 
                          use_horovod)
         self.mrl_loss_weights = mrl_loss_weights
+        self.dim_to_consider = dim_to_consider
     
     def forward(self, image_features, text_features, logit_scale, output_dict=False):
         # print("Inside forward of MRL CLIP loss",len(self.mrl_loss_weights), self.mrl_loss_weights )
 
-        assert len(self.mrl_loss_weights) == 8, "list containing loss weights must contain 8 elements"
+        assert len(self.mrl_loss_weights) == len(self.dim_to_consider), "number of elements in loss weights and dim_to_consider should be same"
         
-        dim_to_consider = [8, 16, 32, 64, 128, 256, 512, 768]
+        # dim_to_consider = [768, 384, 192, 96, 48]
         total_loss = 0 
-        for idx, dim in enumerate(dim_to_consider): 
+        for idx, dim in enumerate(self.dim_to_consider): 
             img = F.normalize( image_features[:,:dim], dim=-1) # slice and normalize 
             text = F.normalize( text_features[:,:dim], dim=-1) # slice and normalize 
             loss = super().forward(image_features=img, text_features=text, logit_scale=logit_scale)

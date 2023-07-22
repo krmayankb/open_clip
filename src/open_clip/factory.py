@@ -270,7 +270,8 @@ def create_loss(args):
             rank=args.rank,
             world_size=args.world_size,
             use_horovod=args.horovod,
-            mrl_loss_weights=args.mrl_loss_weights
+            mrl_loss_weights=args.mrl_loss_weights, 
+            dim_to_consider=args.mrl_dim_to_consider
         )
     return ClipLoss(
         local_loss=args.local_loss,
