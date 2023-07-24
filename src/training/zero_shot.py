@@ -20,7 +20,8 @@ def zero_shot_classifier(model, classnames, templates, dim, args):
                 class_embeddings = model.module.encode_text(texts)
             else:
                 class_embeddings = model.encode_text(texts)
-            class_embeddings = class_embeddings[:,:dim] # consider only dim for creating zeroshot classifier 
+            if args.force_mrl_loss:
+                class_embeddings = class_embeddings[:,:dim] # consider only dim for creating zeroshot classifier 
             class_embedding = F.normalize(class_embeddings, dim=-1).mean(dim=0)
             class_embedding /= class_embedding.norm()
             zeroshot_weights.append(class_embedding)
@@ -51,7 +52,8 @@ def run(model, classifier, dataloader, dim, args):
                     image_features = model.module.encode_image(images)
                 else:
                     image_features = model.encode_image(images)
-                image_features = image_features[:,:dim]
+                if args.force_mrl_loss:
+                    image_features = image_features[:,:dim]
                 image_features = F.normalize(image_features, dim=-1)
                 logits = 100. * image_features @ classifier
 
@@ -100,16 +102,16 @@ def zero_shot_eval(model, data, epoch, args):
     # for other losses than MRL
     else: 
         logging.info('Building zero-shot classifier')
-        classifier = zero_shot_classifier(model, imagenet_classnames, openai_imagenet_template, args)
+        classifier = zero_shot_classifier(model, imagenet_classnames, openai_imagenet_template, 0, args)
 
         logging.info('Using classifier')
         results = {}
         if 'imagenet-val' in data:
-            top1, top5 = run(model, classifier, data['imagenet-val'].dataloader, args)
+            top1, top5 = run(model, classifier, data['imagenet-val'].dataloader, 0, args)
             results['imagenet-zeroshot-val-top1'] = top1
             results['imagenet-zeroshot-val-top5'] = top5
         if 'imagenet-v2' in data:
-            top1, top5 = run(model, classifier, data['imagenet-v2'].dataloader, args)
+            top1, top5 = run(model, classifier, data['imagenet-v2'].dataloader, 0, args)
             results['imagenetv2-zeroshot-val-top1'] = top1
             results['imagenetv2-zeroshot-val-top5'] = top5
 
