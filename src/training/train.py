@@ -174,7 +174,11 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
 
         # Note: we clamp to 4.6052 = ln(100), as in the original paper.
         with torch.no_grad():
-            unwrap_model(model).logit_scale.clamp_(0, math.log(100))
+            if args.force_mrl_loss: 
+                for idx in range(len(args.mrl_dim_to_consider)):
+                    unwrap_model(model).logit_scale[idx].clamp_(0, math.log(100))
+            else: 
+                unwrap_model(model).logit_scale.clamp_(0, math.log(100))
 
         batch_time_m.update(time.time() - end)
         end = time.time()
@@ -191,7 +195,12 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                     losses_m[key] = AverageMeter()
                 losses_m[key].update(val.item(), batch_size)
 
-            logit_scale_scalar = logit_scale.item()
+            if args.force_mrl_loss: 
+                logit_scale_scalar = [logit_scale[i].item() for i in range(len(args.mrl_dim_to_consider))]
+                logit_scale_string = " ,".join([f"{item:.3f}" for item in logit_scale_scalar])
+            else: 
+                logit_scale_scalar = logit_scale.item()
+                logit_scale_string = f"{logit_scale_scalar:.3f}"
             loss_log = " ".join(
                 [
                     f"{loss_name.capitalize()}: {loss_m.val:#.5g} ({loss_m.avg:#.5g})" 
@@ -205,18 +214,29 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 f"Data (t): {data_time_m.avg:.3f} "
                 f"Batch (t): {batch_time_m.avg:.3f}, {samples_per_second:#g}/s, {samples_per_second_per_gpu:#g}/s/gpu "
                 f"LR: {optimizer.param_groups[0]['lr']:5f} "
-                f"Logit Scale: {logit_scale_scalar:.3f} " + loss_log
+                f"Logit Scale: {logit_scale_string} " + loss_log
             )
 
             # Save train loss / etc. Using non avg meter values as loggers have their own smoothing
-            log_data = {
-                "data_time": data_time_m.val,
-                "batch_time": batch_time_m.val,
-                "samples_per_second": samples_per_second,
-                "samples_per_second_per_gpu": samples_per_second_per_gpu,
-                "scale": logit_scale_scalar,
-                "lr": optimizer.param_groups[0]["lr"]
-            }            
+            if args.force_mrl_loss: 
+                log_data = {
+                    "data_time": data_time_m.val,
+                    "batch_time": batch_time_m.val,
+                    "samples_per_second": samples_per_second,
+                    "samples_per_second_per_gpu": samples_per_second_per_gpu,
+                    "lr": optimizer.param_groups[0]["lr"]
+                }            
+                log_data.update({f"scale_{dim}": logit_scale_scalar[idx] for idx, dim in enumerate(args.mrl_dim_to_consider)})
+            else:
+                log_data = {
+                    "data_time": data_time_m.val,
+                    "batch_time": batch_time_m.val,
+                    "samples_per_second": samples_per_second,
+                    "samples_per_second_per_gpu": samples_per_second_per_gpu,
+                    "scale": logit_scale_scalar,
+                    "lr": optimizer.param_groups[0]["lr"]
+                }            
+
             log_data.update({name:val.val for name,val in losses_m.items()})
 
             for name, val in log_data.items():

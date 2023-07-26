@@ -1,6 +1,7 @@
 cd /mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src
-torchrun --nproc_per_node 2 --master_port 3233 -m training.main \
+torchrun --nproc_per_node 2 --master_port 4556 -m training.main \
     --model "ViT-B-16" \
+    --pretrained "laion400m_e32" \
     --train-data "/mmfs1/data/yfcc-tmp/cc_3m/train_shards/shard_{000000..003318}.tar" \
     --imagenet-val "/mmfs1/data/yfcc-tmp/imagenet/val/" \
     --dataset-type webdataset \
@@ -8,16 +9,17 @@ torchrun --nproc_per_node 2 --master_port 3233 -m training.main \
     --gather-with-grad \
     --local-loss \
     --force_mrl_loss \
-    --mrl_loss_weights "0.1,0.15,0.2,0.25,0.3" \
+    --mrl_loss_weights "1,1,1,1,1" \
     --mrl_dim_to_consider "768,384,192,96,48" \
-    --batch-size 512 \
     --accum-freq 1 \
+    --batch-size 512 \
+    --lr 1e-07 \
     --workers 4 \
-    --epochs 40 \
-    --warmup 4000 \
-    --zeroshot-frequency 2 \
+    --epochs 10 \
+    --warmup 500 \
+    --zeroshot-frequency 1 \
     --seed 0 \
     --report-to 'wandb' \
     --wandb-project-name "mrl_clip_training" \
     --logs "/mmfs1/gscratch/krishna/mayank/clip_clone/open_clip/src/logs/mrl_clip" \
-    --name "mrl_clip_b512_accum_1_ep40_diffLogitScale_D082723_wl010150202503" 
+    --name "ViT-B-16_liaon400m_e32_finetune_mrl_ep10_warmup_500_lr1e-07" 

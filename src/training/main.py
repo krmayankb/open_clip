@@ -230,7 +230,8 @@ def main(args):
         image_std=args.image_std,
         aug_cfg=args.aug_cfg,
         output_dict=True,
-        use_mrl=args.force_mrl_loss
+        use_mrl=args.force_mrl_loss,
+        mrl_dim = len(args.mrl_dim_to_consider)
     )
     if args.distill:
         # FIXME: currenlty assumes the model your distilling from has the same tokenizer & transforms.

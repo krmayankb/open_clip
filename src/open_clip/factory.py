@@ -119,7 +119,8 @@ def create_model(
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
         require_pretrained: bool = False,
-        use_mrl: bool = False
+        use_mrl: bool = False, 
+        mrl_dim: int = 0
 ):
     has_hf_hub_prefix = model_name.startswith(HF_HUB_PREFIX)
     if has_hf_hub_prefix:
@@ -192,7 +193,7 @@ def create_model(
             else:
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
-            model = CLIP(**model_cfg, cast_dtype=cast_dtype, use_mrl=use_mrl) # intialise with mrl based config if use_mrl
+            model = CLIP(**model_cfg, cast_dtype=cast_dtype, use_mrl=use_mrl, mrl_dim=mrl_dim) # intialise with mrl based config if use_mrl
 
         pretrained_loaded = False
         if pretrained:
@@ -205,7 +206,10 @@ def create_model(
 
             if checkpoint_path:
                 logging.info(f'Loading pretrained {model_name} weights ({pretrained}).')
-                load_checkpoint(model, checkpoint_path)
+                if use_mrl: 
+                    load_checkpoint(model, checkpoint_path, strict=False)
+                else: 
+                    load_checkpoint(model, checkpoint_path)
             else:
                 error_str = (
                     f'Pretrained weights ({pretrained}) not found for model {model_name}.'
@@ -300,7 +304,8 @@ def create_model_and_transforms(
         aug_cfg: Optional[Union[Dict[str, Any], AugmentationCfg]] = None,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
-        use_mrl = False
+        use_mrl: Optional[bool] = False, 
+        mrl_dim: int = 0
 ):
     model = create_model(
         model_name,
@@ -316,7 +321,8 @@ def create_model_and_transforms(
         pretrained_hf=pretrained_hf,
         cache_dir=cache_dir,
         output_dict=output_dict,
-        use_mrl=use_mrl
+        use_mrl=use_mrl, 
+        mrl_dim = mrl_dim
     )
 
     image_mean = image_mean or getattr(model.visual, 'image_mean', None)

@@ -236,14 +236,16 @@ class MRLClipLoss(ClipLoss):
         assert len(self.mrl_loss_weights) == len(self.dim_to_consider), "number of elements in loss weights and dim_to_consider should be same"
         
         # dim_to_consider = [768, 384, 192, 96, 48]
-        total_loss = 0 
+        # total_loss = 0
+        loss_list = []
         for idx, dim in enumerate(self.dim_to_consider): 
             img = F.normalize( image_features[:,:dim], dim=-1) # slice and normalize 
             text = F.normalize( text_features[:,:dim], dim=-1) # slice and normalize 
-            loss = super().forward(image_features=img, text_features=text, logit_scale=logit_scale)
-            total_loss += self.mrl_loss_weights[idx] * loss
-        
+            loss = super().forward(image_features=img, text_features=text, logit_scale=logit_scale[idx])
+            # total_loss += self.mrl_loss_weights[idx] * loss
+            loss_list.append(self.mrl_loss_weights[idx] * loss)
+            
         if output_dict:
-            return {"mrl_clip_loss": total_loss}        
+            return {f"mrl_clip_loss_{key}": value for key, value in zip(self.dim_to_consider, loss_list)} 
         
-        return total_loss
+        return loss_list
