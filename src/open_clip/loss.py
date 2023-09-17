@@ -15,6 +15,11 @@ try:
 except ImportError:
     hvd = None
 
+try:
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    xm = None
+
 
 def gather_features(
         image_features,
@@ -230,6 +235,14 @@ class MRLClipLoss(ClipLoss):
         self.mrl_loss_weights = mrl_loss_weights
         self.dim_to_consider = dim_to_consider
     
+    def normalize(self, features, dim=-1):
+        if xm.xla_device():
+            norm = xm.all_reduce("sum", features ** 2)
+            norm = torch.sqrt(norm)
+            features = features / norm   
+            return features
+        return F.normalize(features, dim=dim)
+    
     def forward(self, image_features, text_features, logit_scale, output_dict=False):
         # print("Inside forward of MRL CLIP loss",len(self.mrl_loss_weights), self.mrl_loss_weights )
 
@@ -239,9 +252,9 @@ class MRLClipLoss(ClipLoss):
         # total_loss = 0
         loss_list = []
         for idx, dim in enumerate(self.dim_to_consider): 
-            img = F.normalize( image_features[:,:dim], dim=-1) # slice and normalize 
-            text = F.normalize( text_features[:,:dim], dim=-1) # slice and normalize 
-            loss = super().forward(image_features=img, text_features=text, logit_scale=logit_scale[idx])
+            img = self.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
+            txt = self.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
+            loss = super().forward(image_features=img, text_features=txt, logit_scale=logit_scale[idx])
             # total_loss += self.mrl_loss_weights[idx] * loss
             loss_list.append(self.mrl_loss_weights[idx] * loss)
             

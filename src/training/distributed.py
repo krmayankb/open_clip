@@ -8,6 +8,10 @@ try:
 except ImportError:
     hvd = None
 
+try: 
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    xm = None
 
 def is_global_master(args):
     return args.rank == 0
@@ -38,7 +42,6 @@ def is_using_distributed():
     if 'SLURM_NTASKS' in os.environ:
         return int(os.environ['SLURM_NTASKS']) > 1
     return False
-
 
 def world_info_from_env():
     local_rank = 0
@@ -107,6 +110,8 @@ def init_distributed_device(args):
         else:
             device = 'cuda:0'
         torch.cuda.set_device(device)
+    elif xm is not None:
+        device = xm.xla_device()
     else:
         device = 'cpu'
     args.device = device
@@ -118,6 +123,8 @@ def broadcast_object(args, obj, src=0):
     # broadcast a pickle-able python object from rank-0 to all ranks
     if args.horovod:
         return hvd.broadcast_object(obj, root_rank=src)
+    elif xm is not None:
+        return xm.mesh_reduce('broadcast_object', obj, lambda x: x, src)
     else:
         if args.rank == src:
             objects = [obj]
@@ -131,6 +138,8 @@ def all_gather_object(args, obj, dst=0):
     # gather a pickle-able python object across all ranks
     if args.horovod:
         return hvd.allgather_object(obj)
+    elif xm is not None:
+        return xm.mesh_reduce('all_gather_object', obj, lambda x: x, dst)
     else:
         objects = [None for _ in range(args.world_size)]
         dist.all_gather_object(objects, obj)
