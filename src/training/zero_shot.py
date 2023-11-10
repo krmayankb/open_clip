@@ -3,6 +3,7 @@ import logging
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+import contextlib
 
 from open_clip import get_cast_dtype, get_tokenizer
 from .precision import get_autocast
@@ -36,7 +37,7 @@ def accuracy(output, target, topk=(1,)):
 
 
 def run(model, classifier, dataloader, dim, args):
-    autocast = get_autocast(args.precision)
+    autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
     cast_dtype = get_cast_dtype(args.precision)
     with torch.no_grad():
         top1, top5, n = 0., 0., 0.
