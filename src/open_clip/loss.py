@@ -252,8 +252,10 @@ class MRLClipLoss(ClipLoss):
         # total_loss = 0
         loss_list = []
         for idx, dim in enumerate(self.dim_to_consider): 
-            img = self.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
-            txt = self.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
+            # img = self.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
+            # txt = self.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
+            img = F.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
+            txt = F.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
             loss = super().forward(image_features=img, text_features=txt, logit_scale=logit_scale[idx])
             # total_loss += self.mrl_loss_weights[idx] * loss
             loss_list.append(self.mrl_loss_weights[idx] * loss)
