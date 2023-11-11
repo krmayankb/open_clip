@@ -38,7 +38,7 @@ def accuracy(output, target, topk=(1,)):
 
 def run(model, classifier, dataloader, dim, args):
     autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
-    cast_dtype = get_cast_dtype(args.precision)
+    cast_dtype = get_cast_dtype(args.precision)    
     with torch.no_grad():
         top1, top5, n = 0., 0., 0.
         for images, target in tqdm(dataloader, unit_scale=args.batch_size):
