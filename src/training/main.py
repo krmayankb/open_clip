@@ -358,12 +358,6 @@ def main(args):
         data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))      
         if xm.is_master_ordinal():
             xm.rendezvous('download_only_once')  
-        
-        for split in ["train", "imagenet-val"]:
-            device = xm.xla_device()
-            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
-            data[split].dataloader = para_loader.per_device_loader(device) 
-    
     else:
         data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
     assert len(data), 'At least one train or eval dataset must be specified.'
@@ -421,6 +415,11 @@ def main(args):
         return
 
     loss = create_loss(args)
+    if args.use_tpu: 
+        for split in ["train", "imagenet-val"]:
+        device = xm.xla_device()
+        para_loader = pl.ParallelLoader(data[split].dataloader, [device])
+        data[split].dataloader = para_loader.per_device_loader(device) 
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
