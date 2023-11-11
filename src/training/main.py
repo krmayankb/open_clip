@@ -359,7 +359,7 @@ def main(args):
         if xm.is_master_ordinal():
             xm.rendezvous('download_only_once')  
         
-        for split in ["train", "val"]:
+        for split in ["train", "imagenet-val"]:
             device = xm.xla_device()
             para_loader = pl.ParallelLoader(data[split].dataloader, [device])
             data[split].dataloader = para_loader.per_device_loader(device) 
