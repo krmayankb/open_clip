@@ -417,9 +417,9 @@ def main(args):
     loss = create_loss(args)
     if args.use_tpu: 
         for split in ["train", "imagenet-val"]:
-        device = xm.xla_device()
-        para_loader = pl.ParallelLoader(data[split].dataloader, [device])
-        data[split].dataloader = para_loader.per_device_loader(device) 
+            device = xm.xla_device()
+            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
+            data[split].dataloader = para_loader.per_device_loader(device) 
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
