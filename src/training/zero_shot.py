@@ -4,6 +4,8 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 import contextlib
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
 
 from open_clip import get_cast_dtype, get_tokenizer
 from .precision import get_autocast
@@ -39,6 +41,12 @@ def accuracy(output, target, topk=(1,)):
 def run(model, classifier, dataloader, dim, args):
     autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
     cast_dtype = get_cast_dtype(args.precision)    
+    
+    if args.use_tpu: 
+        device = xm.xla_device()
+        para_loader = pl.ParallelLoader(dataloader, [device])
+        dataloader = para_loader.per_device_loader(device) 
+    
     with torch.no_grad():
         top1, top5, n = 0., 0., 0.
         for images, target in tqdm(dataloader, unit_scale=args.batch_size):

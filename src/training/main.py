@@ -78,7 +78,7 @@ def get_latest_checkpoint(path: str, remote : bool):
     return None
 
 
-def main(args):
+def main(index, args):
     args = parse_args(args)
     # check if args.use_tpu is set, if so, use torch_xla        
     if torch.cuda.is_available():
@@ -415,12 +415,7 @@ def main(args):
         return
 
     loss = create_loss(args)
-    if args.use_tpu: 
-        for split in ["train", "imagenet-val"]:
-            device = xm.xla_device()
-            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
-            data[split].dataloader = para_loader.per_device_loader(device) 
-
+    
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -496,8 +491,13 @@ def copy_codebase(args):
     return 1
 
 
+def run_tpu():
+    # Spawn 8 processes
+    xmp.spawn(main, args=(sys.argv[1:],))
+
+
 if __name__ == "__main__":
     if xmp is not None:
-        xmp.spawn(main(sys.argv[1:]), nprocs=8, start_method='fork')
+        run_tpu()
     else:
         main(sys.argv[1:])
