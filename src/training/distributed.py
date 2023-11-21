@@ -22,6 +22,8 @@ def is_local_master(args):
 
 
 def is_master(args, local=False):
+    if xm is not None:
+        return xm.is_master_ordinal()
     return is_local_master(args) if local else is_global_master(args)
 
 
