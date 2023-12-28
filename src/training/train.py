@@ -52,14 +52,15 @@ def unwrap_model(model):
         return model
 
 
-def backward(total_loss, scaler):
-    if scaler is not None:
-        scaler.scale(total_loss).backward()
-    else:
-        total_loss.backward()
+def backward(total_loss, scaler, fabric):
+    # if scaler is not None:
+    #     scaler.scale(total_loss).backward()
+    # else:
+    #     total_loss.backward()
+    fabric.backward(total_loss)
 
 
-def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
+def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, fabric, fabric_train_dataloader, args, tb_writer=None):
     device = torch.device(args.device)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
@@ -81,6 +82,9 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     end = time.time()
+    
+    # Fabric dataloader
+    dataloader = fabric_train_dataloader
     for i, batch in enumerate(dataloader):
         i_accum = i // args.accum_freq
         step = num_batches_per_epoch * epoch + i_accum
@@ -89,8 +93,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             scheduler(step)
 
         images, texts = batch
-        images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-        texts = texts.to(device=device, non_blocking=True)
+        # images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
+        # texts = texts.to(device=device, non_blocking=True)
 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
@@ -108,7 +112,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 total_loss = sum(losses.values())
                 losses["loss"] = total_loss
 
-            backward(total_loss, scaler)
+            backward(total_loss, scaler, fabric)
         else:
             # First, cache the features without any gradient tracking.
             with torch.no_grad():
@@ -147,7 +151,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                     del inputs
                     total_loss = sum(losses.values())
                     losses["loss"] = total_loss
-                backward(total_loss, scaler)
+                backward(total_loss, scaler, fabric)
 
         if scaler is not None:
             if args.horovod:
@@ -253,7 +257,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     # end for
 
 
-def evaluate(model, data, epoch, args, tb_writer=None):
+def evaluate(model, data, epoch, fabric, fabric_val_dataloader, args, tb_writer=None):
     metrics = {}
     if not is_master(args):
         return metrics
@@ -276,11 +280,14 @@ def evaluate(model, data, epoch, args, tb_writer=None):
         cumulative_loss = 0.0
         cumulative_gen_loss = 0.0
         all_image_features, all_text_features = [], []
+        
+        # Fabric wrapped dataloader 
+        dataloader = fabric_val_dataloader
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
-                images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-                texts = texts.to(device=device, non_blocking=True)
+                # images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
+                # texts = texts.to(device=device, non_blocking=True)
 
                 with autocast():
                     model_out = model(images, texts)

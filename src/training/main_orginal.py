@@ -36,9 +36,6 @@ from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
 from training.train import train_one_epoch, evaluate
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
-# imports related to lightning
-import lightning as L
-
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
@@ -72,9 +69,6 @@ def get_latest_checkpoint(path: str, remote : bool):
 
 def main(args):
     args = parse_args(args)
-    
-    # Configure Fabric
-    fabric = L.Fabric() 
 
     if torch.cuda.is_available():
         # This enables tf32 on Ampere GPUs which is only 8% slower than
@@ -320,10 +314,6 @@ def main(args):
 
         scaler = GradScaler() if args.precision == "amp" else None
 
-    # Prepare model as per lightning Fabric 
-    model, optimizer = fabric.setup(model, optimizer)
-
-
     # optionally resume from a checkpoint
     start_epoch = 0
     if args.resume is not None:
@@ -402,18 +392,16 @@ def main(args):
         return
 
     loss = create_loss(args)
-    fabric_train_dataloader = fabric.setup_dataloaders(data["train"].dataloader)
-    fabric_val_dataloader = fabric.setup_dataloaders(data["val"].dataloader)
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
 
-        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, fabric, fabric_train_dataloader, args, tb_writer=writer)
+        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            evaluate(model, data, completed_epoch, fabric, fabric_val_dataloader, args, writer)
+            evaluate(model, data, completed_epoch, args, writer)
 
         # Saving checkpoints.
         if args.save_logs:

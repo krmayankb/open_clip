@@ -227,7 +227,7 @@ def create_model(
             raise RuntimeError(
                 f'Pretrained weights were required for (model: {model_name}, pretrained: {pretrained}) but not loaded.')
 
-        model.to(device=device)
+        # model.to(device=device)
         if precision in ("fp16", "bf16"):
             convert_weights_to_lp(model, dtype=torch.bfloat16 if precision == 'bf16' else torch.float16)
 
