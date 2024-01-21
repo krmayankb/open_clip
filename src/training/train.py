@@ -15,10 +15,12 @@ except ImportError:
     wandb = None
 
 from open_clip import get_cast_dtype, CLIP, CustomTextCLIP
-from .distributed import is_master
+#from .distributed import is_master
 from .zero_shot import zero_shot_eval
 from .precision import get_autocast
 
+import torch_xla.core.xla_model as xm
+is_master = None 
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -58,22 +60,25 @@ def backward(total_loss, scaler, fabric):
     # else:
     #     total_loss.backward()
     fabric.backward(total_loss)
+    xm.mark_step()
 
 
-def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, fabric, fabric_train_dataloader, args, tb_writer=None):
-    device = torch.device(args.device)
+def train_one_epoch(fabric, model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args):
+    tb_writer = None
+    scaler = None
+    #device = torch.device(args.device)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
-
+    is_master = fabric.global_rank == 0
 
     model.train()
     if args.distill:
         dist_model.eval()
 
     data['train'].set_epoch(epoch)  # set epoch in process safe manner via sampler or shared_epoch
-    dataloader = data['train'].dataloader
-    num_batches_per_epoch = dataloader.num_batches // args.accum_freq
-    sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
+    old_dataloader = data['train'].dataloader
+    num_batches_per_epoch = old_dataloader.num_batches // args.accum_freq
+    sample_digits = math.ceil(math.log(old_dataloader.num_samples + 1, 10))
 
     if args.accum_freq > 1:
         accum_images, accum_texts, accum_features = [], [], {}
@@ -82,9 +87,9 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     end = time.time()
-    
+    args.device = fabric.device
     # Fabric dataloader
-    dataloader = fabric_train_dataloader
+    dataloader = args.fabric_train_dataloader
     for i, batch in enumerate(dataloader):
         i_accum = i // args.accum_freq
         step = num_batches_per_epoch * epoch + i_accum
@@ -171,7 +176,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             if args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
             optimizer.step()
-
+            xm.mark_step()
+        
         # reset gradient accum, if enabled
         if args.accum_freq > 1:
             accum_images, accum_texts, accum_features = [], [], {}
@@ -187,7 +193,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         batch_time_m.update(time.time() - end)
         end = time.time()
         batch_count = i_accum + 1
-        if is_master(args) and (i_accum % args.log_every_n_steps == 0 or batch_count == num_batches_per_epoch):
+        if is_master and (i_accum % args.log_every_n_steps == 0 or batch_count == num_batches_per_epoch):
             batch_size = len(images)
             num_samples = batch_count * batch_size * args.accum_freq * args.world_size
             samples_per_epoch = dataloader.num_samples
@@ -254,19 +260,26 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             # resetting batch / data time meters per log window
             batch_time_m.reset()
             data_time_m.reset()
+            xm.mark_step()
     # end for
 
 
-def evaluate(model, data, epoch, fabric, fabric_val_dataloader, args, tb_writer=None):
+def evaluate(fabric, model, data, epoch, args, tb_writer=None):
+    #print("Inside Evaluate function")
     metrics = {}
-    if not is_master(args):
+    xm.mark_step()
+    is_master = fabric.global_rank == 0
+    #print("CHECK AFTER GLOBAL IN EVALUATE: ", is_master)
+    if not is_master:
         return metrics
-    device = torch.device(args.device)
+    #device = torch.device(args.device)
     model.eval()
-
+    xm.mark_step()
+    args.fabric = fabric
     zero_shot_metrics = zero_shot_eval(model, data, epoch, args)
+    xm.mark_step()
     metrics.update(zero_shot_metrics)
-
+    
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
 
@@ -282,7 +295,7 @@ def evaluate(model, data, epoch, fabric, fabric_val_dataloader, args, tb_writer=
         all_image_features, all_text_features = [], []
         
         # Fabric wrapped dataloader 
-        dataloader = fabric_val_dataloader
+        dataloader = args.fabric_val_dataloader
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -303,7 +316,8 @@ def evaluate(model, data, epoch, fabric, fabric_val_dataloader, args, tb_writer=
                     logits_per_text = logits_per_image.t()
 
                     batch_size = images.shape[0]
-                    labels = torch.arange(batch_size, device=device).long()
+                    #labels = torch.arange(batch_size, device=device).long()
+                    labels = torch.arange(batch_size).long()
                     total_loss = (
                         F.cross_entropy(logits_per_image, labels) +
                         F.cross_entropy(logits_per_text, labels)
@@ -313,7 +327,7 @@ def evaluate(model, data, epoch, fabric, fabric_val_dataloader, args, tb_writer=
 
                 cumulative_loss += total_loss * batch_size
                 num_samples += batch_size
-                if is_master(args) and (i % 100) == 0:
+                if is_master and (i % 100) == 0:
                     logging.info(
                         f"Eval Epoch: {epoch} [{num_samples} / {samples_per_val}]\t"
                         f"Clip Loss: {cumulative_loss / num_samples:.6f}\t")

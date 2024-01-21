@@ -38,7 +38,7 @@ from training.file_utils import pt_load, check_exists, start_sync_process, remot
 
 # imports related to lightning
 import lightning as L
-
+import torch_xla.core.xla_model as xm
 
 # LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
@@ -72,10 +72,10 @@ import lightning as L
 
 # def main(args):
 #     args = parse_args(args)
-    
+#
 #     # Configure Fabric
 #     fabric = L.Fabric() 
-
+#
 #     if torch.cuda.is_available():
 #         # This enables tf32 on Ampere GPUs which is only 8% slower than
 #         # float16 and almost as accurate as float32
@@ -83,10 +83,10 @@ import lightning as L
 #         torch.backends.cuda.matmul.allow_tf32 = True
 #         torch.backends.cudnn.benchmark = True
 #         torch.backends.cudnn.deterministic = False
-
+#
 #     # fully initialize distributed device environment
 #     device = init_distributed_device(args)
-
+#
 #     # get the name of the experiments
 #     if args.name is None:
 #         # sanitize model name for filesystem / uri use, easier if we don't use / in name as a rule?
@@ -286,7 +286,7 @@ import lightning as L
 #             # this doesn't exist in older PyTorch, arg only added if enabled
 #             ddp_args['static_graph'] = True
 #         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], **ddp_args)
-    
+#
 #         if args.distill:
 #             dist_model = torch.nn.parallel.DistributedDataParallel(dist_model, device_ids=[device], **ddp_args)
 
@@ -481,9 +481,15 @@ import lightning as L
 
 
 ########################################################################################################
+
+
 def main(fabric, args):
+    print("World Size: ", fabric.world_size)
+    args.world_size = fabric.world_size
+    args.rank = fabric.global_rank  # global rank
+    args.local_rank = fabric.local_rank
     if fabric.global_rank == 0:
-        args.logs.mkdir(parents=True, exist_ok=True)
+        os.makedirs(args.logs, exist_ok=True)
 
     if torch.cuda.is_available():
         # This enables tf32 on Ampere GPUs which is only 8% slower than
@@ -621,7 +627,8 @@ def main(fabric, args):
     if isinstance(args.force_image_size, (tuple, list)) and len(args.force_image_size) == 1:
         # arg is nargs, single (square) image size list -> int
         args.force_image_size = args.force_image_size[0]
-    random_seed(args.seed, 0)
+#    random_seed(args.seed, 0)
+    device = None
     model, preprocess_train, preprocess_val = create_model_and_transforms(
         args.model,
         args.pretrained,
@@ -655,7 +662,7 @@ def main(fabric, args):
     if args.grad_checkpointing:
         model.set_grad_checkpointing()
 
-    if is_master(args) or fabric.global_rank == 0:
+    if fabric.global_rank == 0:
         logging.info("Model:")
         logging.info(f"{str(model)}")
         logging.info("Params:")
@@ -716,6 +723,7 @@ def main(fabric, args):
     #         logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
     # initialize datasets
+    args.distill = None
     data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
     assert len(data), 'At least one train or eval dataset must be specified.'
 
@@ -774,21 +782,22 @@ def main(fabric, args):
         return
 
     loss = create_loss(args)
-    fabric_train_dataloader = fabric.setup_dataloaders(data["train"].dataloader)
-    fabric_val_dataloader = fabric.setup_dataloaders(data["val"].dataloader)
+    args.fabric_train_dataloader = fabric.setup_dataloaders(data["train"].dataloader)
+    args.fabric_val_dataloader = fabric.setup_dataloaders(data["imagenet-val"].dataloader)
 
     # Fabric related 
     dist_model = None
+    
     # Fabric related 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
-
-        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, fabric, fabric_train_dataloader, args, tb_writer=writer)
+        train_one_epoch(fabric, model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args)
         completed_epoch = epoch + 1
-
+        xm.mark_step()
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            evaluate(model, data, completed_epoch, fabric, fabric_val_dataloader, args, writer)
+            evaluate(fabric, model, data, completed_epoch, args, writer)
+        print("EVALUATE RAN SUCCESSFULLY!!")
 
         # Saving checkpoints.
         if args.save_logs:
@@ -825,38 +834,34 @@ def main(fabric, args):
         wandb.finish()
 
     # run a final sync.
-    if remote_sync_process is not None:
-        logging.info('Final remote sync.')
-        remote_sync_process.terminate()
-        result = remote_sync(
-            os.path.join(args.logs, args.name), 
-            os.path.join(args.remote_sync, args.name), 
-            args.remote_sync_protocol
-        )
-        if result:
-            logging.info('Final remote sync successful.')
-        else:
-            logging.info('Final remote sync failed.')
+#    if remote_sync_process is not None:
+#        logging.info('Final remote sync.')
+#        remote_sync_process.terminate()
+#        result = remote_sync(
+#            os.path.join(args.logs, args.name), 
+#            os.path.join(args.remote_sync, args.name), 
+#            args.remote_sync_protocol
+#        )
+#        if result:
+#            logging.info('Final remote sync successful.')
+#        else:
+#            logging.info('Final remote sync failed.')
 ########################################################################################################
-
-def setup(main, args, devices: int = 1, precision: Optional[str] = None, resume: Union[bool, Path] = False) -> None:
+def setup(main, args, devices = 1, precision = None, resume = False) -> None:
     precision = precision 
 
     if devices > 1:
-        strategy = L.fabric.strategies.FSDPStrategy(
-            state_dict_type="full",
-            limit_all_gathers=True,
-            cpu_offload=False,
+        strategy = L.fabric.strategies.XLAFSDPStrategy(
+            state_dict_type="full"
         )
     else:
         strategy = "auto"
-    
-    fabric = L.Fabric(devices=devices, strategy=strategy, precision=precision)
-    fabric.launch(main(fabric, args), resume=resume)
-    
+    print("Just entered the setup function")
+    fabric = L.Fabric(devices=devices, precision=precision)
+    #fabric.launch(main(fabric, args), resume=resume)
+    fabric.launch()
 
 if __name__ == "__main__":
-    torch.set_float32_matmul_precision("high")
     args = parse_args(sys.argv[1:]) 
-    setup(main, args, devices=1, precision="16-mixed", resume=False)
-    
+    fabric = L.Fabric(accelerator="tpu", precision="bf16-true")
+    main(fabric, args)
