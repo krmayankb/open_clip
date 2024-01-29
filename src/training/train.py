@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.parallel.distributed import DistributedDataParallel
+import contextlib
 
 try:
     import wandb
@@ -61,7 +62,7 @@ def backward(total_loss, scaler):
 
 def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
     device = torch.device(args.device)
-    autocast = get_autocast(args.precision)
+    autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
     cast_dtype = get_cast_dtype(args.precision)
 
 
@@ -72,7 +73,10 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     data['train'].set_epoch(epoch)  # set epoch in process safe manner via sampler or shared_epoch
     dataloader = data['train'].dataloader
     num_batches_per_epoch = dataloader.num_batches // args.accum_freq
+    samples_per_epoch = dataloader.num_samples
     sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
+    if args.use_tpu:
+        dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
 
     if args.accum_freq > 1:
         accum_images, accum_texts, accum_features = [], [], {}
@@ -166,7 +170,12 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         else:
             if args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
-            optimizer.step()
+            ############################################################################
+            # For TPU
+            if args.use_tpu:
+                xm.optimizer_step(optimizer)
+            else:
+                optimizer.step()
 
         # reset gradient accum, if enabled
         if args.accum_freq > 1:
@@ -186,14 +195,17 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         if is_master(args) and (i_accum % args.log_every_n_steps == 0 or batch_count == num_batches_per_epoch):
             batch_size = len(images)
             num_samples = batch_count * batch_size * args.accum_freq * args.world_size
-            samples_per_epoch = dataloader.num_samples
+            # samples_per_epoch = dataloader.num_samples
             percent_complete = 100.0 * batch_count / num_batches_per_epoch
 
             # NOTE loss is coarsely sampled, just master node and per log update
             for key, val in losses.items():
                 if key not in losses_m:
                     losses_m[key] = AverageMeter()
-                losses_m[key].update(val.item(), batch_size)
+                if args.use_tpu:
+                    losses_m[key].update(val, batch_size)
+                else: 
+                    losses_m[key].update(val.item(), batch_size)
 
             if args.force_mrl_loss: 
                 logit_scale_scalar = [logit_scale[i].item() for i in range(len(args.mrl_dim_to_consider))]
@@ -263,13 +275,16 @@ def evaluate(model, data, epoch, args, tb_writer=None):
     zero_shot_metrics = zero_shot_eval(model, data, epoch, args)
     metrics.update(zero_shot_metrics)
 
-    autocast = get_autocast(args.precision)
+    autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext    
     cast_dtype = get_cast_dtype(args.precision)
 
     if 'val' in data and (args.val_frequency and ((epoch % args.val_frequency) == 0 or epoch == args.epochs)):
         dataloader = data['val'].dataloader
         num_samples = 0
         samples_per_val = dataloader.num_samples
+        
+        if args.use_tpu:
+            dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
 
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
@@ -291,7 +306,12 @@ def evaluate(model, data, epoch, args, tb_writer=None):
                     # however, system RAM is easily exceeded and compute time becomes problematic
                     all_image_features.append(image_features.cpu())
                     all_text_features.append(text_features.cpu())
-                    logit_scale = logit_scale.mean()
+                    ############################################################
+                    if not args.force_mrl_loss: 
+                        logit_scale = logit_scale.mean()  
+                    else:
+                        logit_scale = sum(logit_scale)/len(logit_scale)
+                    ############################################################
                     logits_per_image = logit_scale * image_features @ text_features.t()
                     logits_per_text = logits_per_image.t()
 

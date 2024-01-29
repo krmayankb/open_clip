@@ -37,6 +37,13 @@ from training.train import train_one_epoch, evaluate
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
 
+#############################################################################
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_multiprocessing as xmp
+#############################################################################
+
+
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
 
@@ -67,8 +74,8 @@ def get_latest_checkpoint(path: str, remote : bool):
     return None
 
 
-def main(args):
-    args = parse_args(args)
+def main(index):
+    # args = parse_args(args)
 
     if torch.cuda.is_available():
         # This enables tf32 on Ampere GPUs which is only 8% slower than
@@ -200,6 +207,10 @@ def main(args):
         logging.info(
             f'Running in distributed mode with multiple processes. Device: {args.device}.'
             f'Process (global: {args.rank}, local {args.local_rank}), total {args.world_size}.')
+    elif args.use_tpu: 
+        logging.info(
+            f'Running in distributed mode with multiple processes. Device: {args.device}.'
+            f'Process (global: {args.rank}, local {args.local_rank}), total {args.world_size}.')        
     else:
         logging.info(f'Running with a single process. Device {args.device}.')
 
@@ -312,7 +323,7 @@ def main(args):
             hvd.broadcast_parameters(model.state_dict(), root_rank=0)
             hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
-        scaler = GradScaler() if args.precision == "amp" else None
+        scaler = GradScaler() if args.precision == "amp" and not args.use_tpu else None
 
     # optionally resume from a checkpoint
     start_epoch = 0
@@ -336,7 +347,16 @@ def main(args):
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
     # initialize datasets
-    data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
+    # data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
+    if args.use_tpu:
+        if not is_master():
+            xm.rendezvous('download_only_once')
+        data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))      
+        if is_master():
+            xm.rendezvous('download_only_once')  
+    else:
+        data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
+    
     assert len(data), 'At least one train or eval dataset must be specified.'
 
     # create scheduler if train
@@ -392,6 +412,11 @@ def main(args):
         return
 
     loss = create_loss(args)
+    if args.use_tpu: 
+        for split in ["train", "imagenet-val"]:
+            device = xm.xla_device()
+            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
+            data[split].dataloader = para_loader.per_device_loader(device)
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -469,4 +494,5 @@ def copy_codebase(args):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    args = parse_args(sys.argv[1:])
+    xmp.spawn(main, args=args)

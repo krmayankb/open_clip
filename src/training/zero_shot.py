@@ -7,10 +7,12 @@ from tqdm import tqdm
 from open_clip import get_cast_dtype, get_tokenizer
 from .precision import get_autocast
 from .imagenet_zeroshot_data import imagenet_classnames, openai_imagenet_template
-
+import torch_xla.core.xla_model as xm
 
 def zero_shot_classifier(model, classnames, templates, dim, args):
+    xm.mark_step()
     tokenizer = get_tokenizer(args.model)
+    xm.mark_step()
     with torch.no_grad():
         zeroshot_weights = []
         for classname in tqdm(classnames):
@@ -25,7 +27,9 @@ def zero_shot_classifier(model, classnames, templates, dim, args):
             class_embedding = F.normalize(class_embeddings, dim=-1).mean(dim=0)
             class_embedding /= class_embedding.norm()
             zeroshot_weights.append(class_embedding)
+        xm.mark_step()
         zeroshot_weights = torch.stack(zeroshot_weights, dim=1).to(args.device)
+        xm.mark_step()
     return zeroshot_weights
 
 
@@ -36,7 +40,8 @@ def accuracy(output, target, topk=(1,)):
 
 
 def run(model, classifier, dataloader, dim, args):
-    autocast = get_autocast(args.precision)
+    # autocast = get_autocast(args.precision)
+    autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
     cast_dtype = get_cast_dtype(args.precision)
     with torch.no_grad():
         top1, top5, n = 0., 0., 0.
@@ -57,8 +62,10 @@ def run(model, classifier, dataloader, dim, args):
                 image_features = F.normalize(image_features, dim=-1)
                 logits = 100. * image_features @ classifier
 
+            xm.mark_step()
             # measure accuracy
             acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+            xm.mark_step()
             top1 += acc1
             top5 += acc5
             n += images.size(0)
