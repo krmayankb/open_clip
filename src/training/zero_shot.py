@@ -13,7 +13,9 @@ from .imagenet_zeroshot_data import imagenet_classnames, openai_imagenet_templat
 
 
 def zero_shot_classifier(model, classnames, templates, dim, args):
+    xm.mark_step()
     tokenizer = get_tokenizer(args.model)
+    xm.mark_step()
     with torch.no_grad():
         zeroshot_weights = []
         for classname in tqdm(classnames):
@@ -28,7 +30,9 @@ def zero_shot_classifier(model, classnames, templates, dim, args):
             class_embedding = F.normalize(class_embeddings, dim=-1).mean(dim=0)
             class_embedding /= class_embedding.norm()
             zeroshot_weights.append(class_embedding)
-        zeroshot_weights = torch.stack(zeroshot_weights, dim=1).to(args.device)
+            xm.mark_step()
+       zeroshot_weights = torch.stack(zeroshot_weights, dim=1).to(args.device)
+       xm.mark_step()
     return zeroshot_weights
 
 
@@ -67,7 +71,9 @@ def run(model, classifier, dataloader, dim, args):
                 logits = 100. * image_features @ classifier
 
             # measure accuracy
+            xm.mark_step()
             acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+            xm.mark_step()
             top1 += acc1
             top5 += acc5
             n += images.size(0)
