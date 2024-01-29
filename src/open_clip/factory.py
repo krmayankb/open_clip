@@ -13,7 +13,7 @@ from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype
 from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, MRLClipLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained, list_pretrained_tags_by_model, download_pretrained_from_hf
 from .transform import image_transform, AugmentationCfg
@@ -119,6 +119,8 @@ def create_model(
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
         require_pretrained: bool = False,
+        use_mrl: bool = False, 
+        mrl_dim: int = 0
 ):
     has_hf_hub_prefix = model_name.startswith(HF_HUB_PREFIX)
     if has_hf_hub_prefix:
@@ -191,7 +193,7 @@ def create_model(
             else:
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
         else:
-            model = CLIP(**model_cfg, cast_dtype=cast_dtype)
+            model = CLIP(**model_cfg, cast_dtype=cast_dtype, use_mrl=use_mrl, mrl_dim=mrl_dim) # intialise with mrl based config if use_mrl
 
         pretrained_loaded = False
         if pretrained:
@@ -204,7 +206,10 @@ def create_model(
 
             if checkpoint_path:
                 logging.info(f'Loading pretrained {model_name} weights ({pretrained}).')
-                load_checkpoint(model, checkpoint_path)
+                if use_mrl: 
+                    load_checkpoint(model, checkpoint_path, strict=False)
+                else: 
+                    load_checkpoint(model, checkpoint_path)
             else:
                 error_str = (
                     f'Pretrained weights ({pretrained}) not found for model {model_name}.'
@@ -261,6 +266,17 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
+    elif args.force_mrl_loss: 
+        return MRLClipLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+            mrl_loss_weights=args.mrl_loss_weights, 
+            dim_to_consider=args.mrl_dim_to_consider
+        )
     return ClipLoss(
         local_loss=args.local_loss,
         gather_with_grad=args.gather_with_grad,
@@ -288,6 +304,8 @@ def create_model_and_transforms(
         aug_cfg: Optional[Union[Dict[str, Any], AugmentationCfg]] = None,
         cache_dir: Optional[str] = None,
         output_dict: Optional[bool] = None,
+        use_mrl: Optional[bool] = False, 
+        mrl_dim: int = 0
 ):
     model = create_model(
         model_name,
@@ -303,6 +321,8 @@ def create_model_and_transforms(
         pretrained_hf=pretrained_hf,
         cache_dir=cache_dir,
         output_dict=output_dict,
+        use_mrl=use_mrl, 
+        mrl_dim = mrl_dim
     )
 
     image_mean = image_mean or getattr(model.visual, 'image_mean', None)
@@ -337,6 +357,7 @@ def create_model_from_pretrained(
         image_mean: Optional[Tuple[float, ...]] = None,
         image_std: Optional[Tuple[float, ...]] = None,
         cache_dir: Optional[str] = None,
+        use_mrl = False
 ):
     model = create_model(
         model_name,
@@ -349,6 +370,7 @@ def create_model_from_pretrained(
         force_image_size=force_image_size,
         cache_dir=cache_dir,
         require_pretrained=True,
+        use_mrl=use_mrl
     )
 
     if not return_transform:

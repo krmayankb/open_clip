@@ -15,6 +15,11 @@ try:
 except ImportError:
     hvd = None
 
+try:
+    import torch_xla.core.xla_model as xm
+except ImportError:
+    xm = None
+
 
 def gather_features(
         image_features,
@@ -210,3 +215,52 @@ class DistillClipLoss(ClipLoss):
             return {"contrastive_loss": contrastive_loss, "distill_loss": distill_loss}
 
         return contrastive_loss, distill_loss
+
+class MRLClipLoss(ClipLoss): 
+    def __init__(self, 
+                 local_loss=False, 
+                 gather_with_grad=False, 
+                 cache_labels=False, 
+                 rank=0, 
+                 world_size=1, 
+                 use_horovod=False, 
+                 mrl_loss_weights = None, 
+                 dim_to_consider=None):
+        super().__init__(local_loss, 
+                         gather_with_grad, 
+                         cache_labels, 
+                         rank, 
+                         world_size, 
+                         use_horovod)
+        self.mrl_loss_weights = mrl_loss_weights
+        self.dim_to_consider = dim_to_consider
+    
+    def normalize(self, features, dim=-1):
+        if xm.xla_device():
+            norm = xm.all_reduce("sum", features ** 2)
+            norm = torch.sqrt(norm)
+            features = features / norm   
+            return features
+        return F.normalize(features, dim=dim)
+    
+    def forward(self, image_features, text_features, logit_scale, output_dict=False):
+        # print("Inside forward of MRL CLIP loss",len(self.mrl_loss_weights), self.mrl_loss_weights )
+
+        assert len(self.mrl_loss_weights) == len(self.dim_to_consider), "number of elements in loss weights and dim_to_consider should be same"
+        
+        # dim_to_consider = [768, 384, 192, 96, 48]
+        # total_loss = 0
+        loss_list = []
+        for idx, dim in enumerate(self.dim_to_consider): 
+            # img = self.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
+            # txt = self.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
+            img = F.normalize(image_features[:,:dim], dim=-1) # slice and normalize 
+            txt = F.normalize(text_features[:,:dim], dim=-1) # slice and normalize 
+            loss = super().forward(image_features=img, text_features=txt, logit_scale=logit_scale[idx])
+            # total_loss += self.mrl_loss_weights[idx] * loss
+            loss_list.append(self.mrl_loss_weights[idx] * loss)
+            
+        if output_dict:
+            return {f"mrl_clip_loss_{key}": value for key, value in zip(self.dim_to_consider, loss_list)} 
+        
+        return loss_list

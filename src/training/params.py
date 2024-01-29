@@ -22,6 +22,11 @@ class ParseKwargs(argparse.Action):
                 kw[key] = str(value)  # fallback to string (avoid need to escape on command line)
         setattr(namespace, self.dest, kw)
 
+def parse_mrl_loss_weights(weights_str):
+    return [float(x) for x in weights_str.split(",")]
+
+def parse_dim_to_consider(dim_to_consider):
+    return [int(x) for x in dim_to_consider.split(",")]
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -423,6 +428,30 @@ def parse_args(args):
         "--distill-pretrained",
         default=None,
         help='Which pre-trained weights to distill from, if any.'
+    )
+    parser.add_argument(
+        "--force_mrl_loss", 
+        default=False, 
+        action="store_true", 
+        help="whether to use MRL based loss"
+    )
+    parser.add_argument(
+        "--mrl_loss_weights", 
+        default=[1,1,1,1,1], 
+        type=parse_mrl_loss_weights, 
+        help="weights for loss weights, dimensions are considered in following order 8, 16, 32, 64, 128, 256, 512, 768"
+    )
+    parser.add_argument(
+        "--mrl_dim_to_consider", 
+        default=[768, 384, 192, 96, 48], 
+        type=parse_dim_to_consider, 
+        help="weights for loss weights, dimensions are considered in following order 8, 16, 32, 64, 128, 256, 512, 768"
+    )
+    parser.add_argument(
+        "--use_tpu",
+        default=False, 
+        action="store_true",
+        help="Weather to use TPUs for training"
     )
     args = parser.parse_args(args)
 

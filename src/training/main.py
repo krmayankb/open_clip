@@ -1,3 +1,5 @@
+# modify this file to support distributed training on tpus and gpus
+# this file is a modified version of the original main.py file from the open_clip repo
 import glob
 import logging
 import os
@@ -11,6 +13,15 @@ import numpy as np
 import torch
 from torch import optim
 from torch.cuda.amp import GradScaler
+
+try:
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.parallel_loader as pl
+    import torch_xla.distributed.xla_multiprocessing as xmp
+except ImportError:
+    xm = None
+    pl = None
+    xmp = None
 
 try:
     import wandb
@@ -67,14 +78,19 @@ def get_latest_checkpoint(path: str, remote : bool):
     return None
 
 
-def main(args):
+def main(index, args):
     args = parse_args(args)
-
+    # check if args.use_tpu is set, if so, use torch_xla        
     if torch.cuda.is_available():
         # This enables tf32 on Ampere GPUs which is only 8% slower than
         # float16 and almost as accurate as float32
         # This was a default in pytorch until 1.12
         torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+    elif args.use_tpu:
+        assert xm is not None, "Please install torch_xla to use TPUs."
+        xm.set_rng_state(args.seed, device=xm.xla_device())
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
 
@@ -230,6 +246,8 @@ def main(args):
         image_std=args.image_std,
         aug_cfg=args.aug_cfg,
         output_dict=True,
+        use_mrl=args.force_mrl_loss,
+        mrl_dim = len(args.mrl_dim_to_consider)
     )
     if args.distill:
         # FIXME: currenlty assumes the model your distilling from has the same tokenizer & transforms.
@@ -310,7 +328,7 @@ def main(args):
             hvd.broadcast_parameters(model.state_dict(), root_rank=0)
             hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
-        scaler = GradScaler() if args.precision == "amp" else None
+        scaler = GradScaler() if args.precision == "amp" and not xm.xla_device() else None
 
     # optionally resume from a checkpoint
     start_epoch = 0
@@ -334,7 +352,14 @@ def main(args):
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
     # initialize datasets
-    data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
+    if args.use_tpu:
+        if not xm.is_master_ordinal():
+            xm.rendezvous('download_only_once')
+        data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))      
+        if xm.is_master_ordinal():
+            xm.rendezvous('download_only_once')  
+    else:
+        data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
     assert len(data), 'At least one train or eval dataset must be specified.'
 
     # create scheduler if train
@@ -390,7 +415,7 @@ def main(args):
         return
 
     loss = create_loss(args)
-
+    
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -466,5 +491,13 @@ def copy_codebase(args):
     return 1
 
 
+def run_tpu():
+    # Spawn 8 processes
+    xmp.spawn(main, args=(sys.argv[1:],))
+
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    if xmp is not None:
+        run_tpu()
+    else:
+        main(sys.argv[1:])
