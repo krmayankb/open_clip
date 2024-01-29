@@ -31,8 +31,8 @@ def zero_shot_classifier(model, classnames, templates, dim, args):
             class_embedding /= class_embedding.norm()
             zeroshot_weights.append(class_embedding)
             xm.mark_step()
-       zeroshot_weights = torch.stack(zeroshot_weights, dim=1).to(args.device)
-       xm.mark_step()
+        zeroshot_weights = torch.stack(zeroshot_weights, dim=1).to(args.device)
+        xm.mark_step()
     return zeroshot_weights
 
 

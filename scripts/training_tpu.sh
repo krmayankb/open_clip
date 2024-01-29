@@ -1,12 +1,11 @@
 #!/bin/bash
 
 export PJRT_DEVICE=TPU
-export XLA_IR_DEBUG=1
-export XLA_METRICS_FILE=1
+#export XLA_IR_DEBUG=1
+#export XLA_METRICS_FILE=1
 #sudo kill -9 $(sudo lsof -w /dev/accel0 | awk 'NR>1 {print $2}' | uniq)
 
 python -c "import os; os.environ.pop('LD_PRELOAD', None)"
-
 
 cd ~/open_clip/src/ 
 python3 -m training.main \
