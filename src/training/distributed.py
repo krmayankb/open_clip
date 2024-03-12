@@ -88,6 +88,7 @@ def init_distributed_device(args):
         args.world_size = xm.xrt_world_size()
         args.rank = xm.get_ordinal()
         args.distributed = True if args.world_size > 1 else False
+        dist.init_process_group("xla", init_method='xla://')
         
     elif is_using_distributed():
         if 'SLURM_PROCID' in os.environ:
@@ -132,8 +133,6 @@ def broadcast_object(args, obj, src=0):
     # broadcast a pickle-able python object from rank-0 to all ranks
     if args.horovod:
         return hvd.broadcast_object(obj, root_rank=src)
-    elif args.use_tpu:
-        return xm.mesh_reduce('broadcast_object', obj, lambda x: x, src)
     else:
         if args.rank == src:
             objects = [obj]
@@ -148,7 +147,7 @@ def all_gather_object(args, obj, dst=0):
     if args.horovod:
         return hvd.allgather_object(obj)
     elif args.use_tpu:
-        return xm.mesh_reduce('all_gather_object', obj, lambda x: x, dst)
+        return xm.all_gather(obj)
     else:
         objects = [None for _ in range(args.world_size)]
         dist.all_gather_object(objects, obj)

@@ -20,6 +20,11 @@ from .distributed import is_master
 from .zero_shot import zero_shot_eval
 from .precision import get_autocast
 
+############################################################################
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+###########################################################################
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -61,6 +66,7 @@ def backward(total_loss, scaler):
 
 
 def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
+    print("ENTERED TRAIN ONE EPOCH")
     device = torch.device(args.device)
     autocast = get_autocast(args.precision) if not args.use_tpu else contextlib.nullcontext
     cast_dtype = get_cast_dtype(args.precision)
@@ -75,9 +81,11 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     num_batches_per_epoch = dataloader.num_batches // args.accum_freq
     samples_per_epoch = dataloader.num_samples
     sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
+    #print("BEFORE DECLARING DATALOADER")
     if args.use_tpu:
-        dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
-
+        #dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
+        dataloader = pl.MpDeviceLoader(dataloader, xm.xla_device())
+    #print("AFTER DECLARING DATALOADER")
     if args.accum_freq > 1:
         accum_images, accum_texts, accum_features = [], [], {}
 
@@ -85,7 +93,9 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     end = time.time()
+    #print("BEFORE ENTERING FOR LOOP FOR TRAINING")
     for i, batch in enumerate(dataloader):
+        #print("INSIDE FOR LOOP")
         i_accum = i // args.accum_freq
         step = num_batches_per_epoch * epoch + i_accum
 
@@ -98,21 +108,24 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
-
+        #print("BEFORE PASSING IMAGES THROUGH MODEL")
         if args.accum_freq == 1:
             with autocast():
                 model_out = model(images, texts)
+                #print("AFTER PASSING IMAGE THROUGH MODEL")
                 logit_scale = model_out["logit_scale"]
+                #print("AFTER LOGIT SCALE")
                 if args.distill:
                     with torch.no_grad():
                         dist_model_out = dist_model(images, texts)
                     model_out.update({f'dist_{k}' : v for k, v in dist_model_out.items()})
                 losses = loss(**model_out, output_dict=True)
-
+                #print("AFTER LOSS CALCULATION")
                 total_loss = sum(losses.values())
                 losses["loss"] = total_loss
-
+                print("LOSS CALC DONE!, STARTING BACKWARD")
             backward(total_loss, scaler)
+            print("AFTER BACKWARD")
         else:
             # First, cache the features without any gradient tracking.
             with torch.no_grad():
@@ -176,6 +189,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 xm.optimizer_step(optimizer)
             else:
                 optimizer.step()
+            ############################################################################
 
         # reset gradient accum, if enabled
         if args.accum_freq > 1:
@@ -284,7 +298,8 @@ def evaluate(model, data, epoch, args, tb_writer=None):
         samples_per_val = dataloader.num_samples
         
         if args.use_tpu:
-            dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
+            #dataloader = pl.ParallelLoader(dataloader, [device]).per_device_loader(device)
+            dataloader = pl.MpDeviceLoader(dataloader, xm.xla_device())
 
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly

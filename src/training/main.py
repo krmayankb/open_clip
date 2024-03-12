@@ -41,6 +41,8 @@ from training.file_utils import pt_load, check_exists, start_sync_process, remot
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
+import torch.distributed as dist
+import torch_xla.distributed.xla_backend
 #############################################################################
 
 
@@ -74,14 +76,21 @@ def get_latest_checkpoint(path: str, remote : bool):
     return None
 
 
-def main(index):
+def main(index, args):
+    #print("CHECKING INDEX: ", index)
+    #print(os.environ['PJRT_DEVICE'])
+    xm.xla_device()
     # args = parse_args(args)
-
     if torch.cuda.is_available():
         # This enables tf32 on Ampere GPUs which is only 8% slower than
         # float16 and almost as accurate as float32
         # This was a default in pytorch until 1.12
         torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+    elif args.use_tpu:
+        assert xm is not None, "Please install torch_xla to use TPUs."
+        xm.set_rng_state(args.seed, device=xm.xla_device())
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
 
@@ -93,9 +102,9 @@ def main(index):
         # sanitize model name for filesystem / uri use, easier if we don't use / in name as a rule?
         model_name_safe = args.model.replace('/', '-')
         date_str = datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
-        if args.distributed:
+        #if args.distributed:
             # sync date_str from master to all ranks
-            date_str = broadcast_object(args, date_str)
+        #    date_str = broadcast_object(args, date_str)
         args.name = '-'.join([
             date_str,
             f"model_{model_name_safe}",
@@ -244,6 +253,7 @@ def main(index):
         use_mrl=args.force_mrl_loss,
         mrl_dim = len(args.mrl_dim_to_consider)
     )
+    xm.broadcast_master_param(model)
     if args.distill:
         # FIXME: currenlty assumes the model your distilling from has the same tokenizer & transforms.
         dist_model, _, _ = create_model_and_transforms(
@@ -290,7 +300,7 @@ def main(index):
         if args.ddp_static_graph:
             # this doesn't exist in older PyTorch, arg only added if enabled
             ddp_args['static_graph'] = True
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], **ddp_args)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], gradient_as_bucket_view=True, **ddp_args)
     
         if args.distill:
             dist_model = torch.nn.parallel.DistributedDataParallel(dist_model, device_ids=[device], **ddp_args)
@@ -349,10 +359,10 @@ def main(index):
     # initialize datasets
     # data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
     if args.use_tpu:
-        if not is_master():
+        if not is_master(args):
             xm.rendezvous('download_only_once')
         data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))      
-        if is_master():
+        if is_master(args):
             xm.rendezvous('download_only_once')  
     else:
         data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
@@ -412,11 +422,11 @@ def main(index):
         return
 
     loss = create_loss(args)
-    if args.use_tpu: 
-        for split in ["train", "imagenet-val"]:
-            device = xm.xla_device()
-            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
-            data[split].dataloader = para_loader.per_device_loader(device)
+#    if args.use_tpu: 
+#        for split in ["train", "imagenet-val"]:
+#            device = xm.xla_device()
+#            para_loader = pl.ParallelLoader(data[split].dataloader, [device])
+#            data[split].dataloader = para_loader.per_device_loader(device)
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -493,6 +503,7 @@ def copy_codebase(args):
     return 1
 
 
+
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    xmp.spawn(main, args=args)
+    xmp.spawn(main, args=(args,), start_method="fork")
