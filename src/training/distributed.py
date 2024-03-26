@@ -90,13 +90,15 @@ def init_distributed_device(args):
                 init_method=args.dist_url,
                 world_size=args.world_size,
                 rank=args.rank,
+		timeout=timedelta(seconds=10800)
             )
         else:
             # DDP via torchrun, torch.distributed.launch
             args.local_rank, _, _ = world_info_from_env()
             torch.distributed.init_process_group(
                 backend=args.dist_backend,
-                init_method=args.dist_url)
+                init_method=args.dist_url,
+		timeout=timedelta(seconds=10800))
             args.world_size = torch.distributed.get_world_size()
             args.rank = torch.distributed.get_rank()
         args.distributed = True
